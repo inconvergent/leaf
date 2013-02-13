@@ -7,11 +7,12 @@ from numpy.random import random
 import numpy as np
 import cairo,Image
 from time import time as time
+import sys
 
 
 def main():
   """
-  do all the things.
+  time to load up the ponies
   """
 
   # GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
@@ -23,6 +24,7 @@ def main():
   STP         = 1./SIZE
   C           = 0.5
   RAD         = 0.4
+  MAXITT      = 50
 
   # GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
 
@@ -99,33 +101,79 @@ def main():
 
   # ARRAYS
 
-  X       = np.zeros(nmax,dtype=np.float)
-  Y       = np.zeros(nmax,dtype=np.float)
-  PARENT  = np.zeros(nmax,dtype=np.int)
+  X      = np.zeros(nmax,dtype=np.float)
+  Y      = np.zeros(nmax,dtype=np.float)
+  PARENT = np.zeros(nmax,dtype=np.int)
 
-  sourceX, sourceY = darts(C,C,RAD,smax)
+  sourceX,sourceY = darts(C,C,RAD,smax)
+  sourcemask = np.zeros(len(sourceX),dtype=np.bool)
+  sourcemask[:] = True
 
-  ctx.set_source_rgb(1,0,0)
-  vcirc(sourceX,sourceY,[sourceDist/2.]*len(sourceX))
-  ctx.set_source_rgb(FRONT,FRONT,FRONT)
+  ## SHOW SOURCE NODES
+  #ctx.set_source_rgb(1,0,0)
+  #vcirc(sourceX,sourceY,[sourceDist/2.]*len(sourceX))
+  #ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
   # (START) VEIN NODES
 
+  ## 0 is right, -PI/2 is down
+
   X[0] = C
-  Y[0] = C+RAD
+  Y[0] = C
+  oo    = 1
 
   # MAIN LOOP
 
   itt = 0
   ti = time()
   try:
-    while True:
+    while itt<MAXITT:
       itt += 1
 
+      # distances from vein nodes to source nodes
+      dd = []
+      for i in xrange(oo):
+        dx = X[i] - sourceX
+        dy = Y[i] - sourceY
+        d  = sqrt(dx*dx+dy*dy)
+        dd.append(d)
+        killmask = d < killzone
+        sourcemask[killmask] = False
+      
+      distances = np.vstack(dd)
+      nodemap   = distances.argmin(axis=0)
+      
+      for i in xrange(oo):
+        mask = np.logical_and(nodemap==i,sourcemask)
+        if mask.any():
+          tx = dx[mask].sum()
+          ty = dy[mask].sum()
+          a  = arctan2(ty,tx)
+          # unit vector of affecting source nodes
+          sx = cos(a)
+          sy = sin(a)
+          
+          X[oo] = X[i] - sx*veinNodeRad
+          Y[oo] = Y[i] - sy*veinNodeRad
+          #print i,oo,o,X[o],Y[o]
+          oo += 1
+          
+      # paint the new vein nodes
+
+      sys.stdout.flush()
+
+    # SHOW SOURCE NODES
+    ctx.set_source_rgb(1,0,0)
+    vcirc(sourceX[sourcemask],sourceY[sourcemask],\
+          [sourceDist/2.]*sourcemask.sum())
+    ctx.set_source_rgb(FRONT,FRONT,FRONT)
+    
+    # SHOW VEIN NODES
+    vcirc(X[:oo],Y[:oo],[veinNodeRad/2]*(oo))
+    print oo
 
 
-
-    print('itt: {:d}  time: {:f}'.format(itt),time()-ti)
+    print('itt: {:d}  time: {:f}'.format(itt,time()-ti))
   except KeyboardInterrupt:
     pass
   finally:
