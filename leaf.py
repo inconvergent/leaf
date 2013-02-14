@@ -17,22 +17,22 @@ def main():
 
   # GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
 
-  SIZE        = 1000
+  SIZE        = 3000
   BACK        = 1.
   FRONT       = 0.
   OUT         = './img.png'
   STP         = 1./SIZE
   C           = 0.5
   RAD         = 0.4
-  MAXITT      = 50
+  MAXITT      = 500
 
   # GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
 
   sourceDist  = 10.*STP
-  killzone    = 10.*STP
+  killzone    = 8.*STP
   veinNodeRad = 5.*STP
-  nmax        = 2*1e7
-  smax        = 1000
+  nmax        = 2*1e6
+  smax        = 2500
 
 
   def ctxInit():
@@ -119,15 +119,18 @@ def main():
   ## 0 is right, -PI/2 is down
 
   X[0] = C
-  Y[0] = C
-  oo    = 1
+  Y[0] = C+RAD
+  X[1] = C
+  Y[1] = C-RAD
+  oo   = 2
 
   # MAIN LOOP
 
   itt = 0
-  ti = time()
+  ti  = time()
+  iti = time()
   try:
-    while itt<MAXITT:
+    while True:
       itt += 1
 
       # distances from vein nodes to source nodes
@@ -137,46 +140,46 @@ def main():
         dy = Y[i] - sourceY
         d  = sqrt(dx*dx+dy*dy)
         dd.append(d)
-        killmask = d < killzone
-        sourcemask[killmask] = False
+        sourcemask[d < killzone] = False
       
       distances = np.vstack(dd)
       nodemap   = distances.argmin(axis=0)
-      
+     
       for i in xrange(oo):
         mask = np.logical_and(nodemap==i,sourcemask)
         if mask.any():
-          tx = dx[mask].sum()
-          ty = dy[mask].sum()
-          a  = arctan2(ty,tx)
-          # unit vector of affecting source nodes
-          sx = cos(a)
-          sy = sin(a)
-          
-          X[oo] = X[i] - sx*veinNodeRad
-          Y[oo] = Y[i] - sy*veinNodeRad
-          #print i,oo,o,X[o],Y[o]
+          dx = X[i] - sourceX[mask]
+          dy = Y[i] - sourceY[mask]
+          tx    = dx.sum()
+          ty    = dy.sum()
+          a     = arctan2(ty,tx)
+          X[oo] = X[i] - cos(a)*veinNodeRad
+          Y[oo] = Y[i] - sin(a)*veinNodeRad
           oo += 1
-          
-      # paint the new vein nodes
 
-      sys.stdout.flush()
+      if not itt % 50:
+        print itt,oo, time()-iti
+        sys.stdout.flush()
+        iti = time()
 
-    # SHOW SOURCE NODES
-    ctx.set_source_rgb(1,0,0)
-    vcirc(sourceX[sourcemask],sourceY[sourcemask],\
-          [sourceDist/2.]*sourcemask.sum())
-    ctx.set_source_rgb(FRONT,FRONT,FRONT)
-    
-    # SHOW VEIN NODES
-    vcirc(X[:oo],Y[:oo],[veinNodeRad/2]*(oo))
-    print oo
-
+      if not sourcemask.any() or itt > MAXITT or oo > nmax:
+        break
 
     print('itt: {:d}  time: {:f}'.format(itt,time()-ti))
   except KeyboardInterrupt:
     pass
   finally:
+    # show source nodes
+    #ctx.set_source_rgb(1,0,0)
+    #vcirc(sourceX[sourcemask],sourceY[sourcemask],\
+          #[sourceDist/2.]*sourcemask.sum())
+    
+    # show wein nodes
+    ctx.set_source_rgb(FRONT,FRONT,FRONT)
+    vcirc(X[:oo],Y[:oo],[veinNodeRad/2]*(oo))
+    print oo
+
+    # save to file
     sur.write_to_png('{:s}'.format(OUT))
 
   return
