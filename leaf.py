@@ -5,8 +5,8 @@
 import numpy as np
 import cairo,Image
 from time import time as time
-from itertools import product as cartesian
 import sys
+from scipy.sparse import coo_matrix,csc_matrix 
 
 
 def main():
@@ -39,10 +39,10 @@ def main():
   ## GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
 
   sourceDist  = 10.*STP
-  killzone    = 8.*STP
-  veinNodeRad = 5.*STP
-  nmax        = 2*1e6
-  smax        = 100
+  killzone    = 8. *STP
+  veinNodeRad = 5. *STP
+  vmax        = 2  *1e6
+  smax        = 20
 
 
   def ctxInit():
@@ -82,17 +82,17 @@ def main():
     get at most n random, uniformly distributed, points in a circle.
     centered at (xx,yy), with radius rr.
     """
-    t = pi*2*random(n)
-    u = random(n)+random(n)
-    r = np.zeros(n,dtype=ft)
-    mask = u>1.
-    xmask = np.logical_not(mask)
-    r[mask] = 2.-u[mask]
+    t        = 2.*pi*random(n)
+    u        = random(n)+random(n)
+    r        = np.zeros(n,dtype=ft)
+    mask     = u>1.
+    xmask    = np.logical_not(mask)
+    r[mask]  = 2.-u[mask]
     r[xmask] = u[xmask]
-    xp = rr*r*cos(t)
-    yp = rr*r*sin(t)
-    gridx=xx+xp
-    gridy=yy+yp
+    xp       = rr*r*cos(t)
+    yp       = rr*r*sin(t)
+    gridx    = xx+xp
+    gridy    = yy+yp
 
     o = []
     for i in xrange(n-1):
@@ -111,12 +111,13 @@ def main():
 
   ## ARRAYS
 
-  X      = np.zeros(nmax,dtype=ft)
-  Y      = np.zeros(nmax,dtype=ft)
-  PARENT = np.zeros(nmax,dtype=bigint)
+  X      = np.zeros(vmax,dtype=ft)
+  Y      = np.zeros(vmax,dtype=ft)
+  PARENT = np.zeros(vmax,dtype=bigint)
 
   sourceX,sourceY = darts(C,C,RAD,smax)
-  sourcemask = np.zeros(len(sourceX),dtype=np.bool)
+  snum = sourceX.shape[0]
+  sourcemask = np.zeros(snum,dtype=np.bool)
   sourcemask[:] = True
 
   ## SHOW SOURCE NODES
@@ -140,9 +141,12 @@ def main():
   try:
     while True:
       itt += 1
+      #if itt > 3:
+        #print oo
+        #break
 
       ## distance: vein nodes -> source nodes
-      distVS = np.zeros((oo,sourceX.shape[0]),dtype=ft)
+      distVS = np.zeros((oo,snum),dtype=ft)
       for i in xrange(oo):
         vsx = (X[i] - sourceX)**2
         vsy = (Y[i] - sourceY)**2
@@ -150,43 +154,65 @@ def main():
       distVS = sqrt(distVS)
       
       ## distance: vein nodes -> vein nodes
-      #distVV = np.zeros((oo,oo),dtype=ft)
-      #for i in range(oo):
-        #vvx = (X[:oo,None] - X[i])**2
-        #vvy = (Y[:oo,None] - Y[i])**2
-        #distVV[:,i]  = (vvx+vvy)[:,0]
-      #distVV = sqrt(distVV)
-      
+      distVV = np.zeros((oo,oo),dtype=ft)
+      for i in range(oo):
+        vvx = (X[:oo,None] - X[i])**2
+        vvy = (Y[:oo,None] - Y[i])**2
+        distVV[:,i]  = (vvx+vvy)[:,0]
+      distVV = sqrt(distVV)
+
       ## mask out dead source nodes
       for i in xrange(oo):
         sourcemask[distVS[i,:] < killzone] = False
 
-      # s source node
-      # v vein node
-      # u "all other points"
-      # (for all u) ||v-s|| < max{ ||u-s||, ||v-u|| } 
+      # (for all u_i) ||v-s|| < max{ ||u_i-s||, ||v-u_i|| }
+      
+      row = []
+      col = []
+      for i in xrange(oo):
+        kk = [k for k in range(oo) if not k==i]
+        for j in xrange(snum):
+          t  = distVS[i,j]
+          ok = True
+          for k in kk:
+            try:
+              ma = np.max(distVS[k,j],distVV[i,k])
+            except Exception as e:
+              ma = 1.
+            if t >= ma:
+              ok = False
+              break
+            
+          if ok:
+            col.append(j)
+            row.append(i)
+
+      nodemap = coo_matrix( ([True]*len(col),(row,col)),\
+                  shape=(oo,snum),dtype=np.bool).tocsr()
 
       ## map: source node -> vein node
-      nodemap   = distVS.argmin(axis=0)
+      #nodemap = distVS.argmin(axis=0)
      
       for i in xrange(oo):
-        mask = np.logical_and(nodemap==i,sourcemask)
+        #mask = np.logical_and(nodemap==i,sourcemask)
+        vmask   = np.logical_and(nodemap[i,:].todense(),sourcemask)
+        mask    = np.zeros(snum,dtype=np.bool)
+        mask[:] = vmask[:]
+
         if mask.any():
-          dx = X[i] - sourceX[mask]
-          dy = Y[i] - sourceY[mask]
-          tx    = dx.sum()
-          ty    = dy.sum()
-          a     = np.arctan2(ty,tx)
+          tx = (X[i] - sourceX[mask]).sum()
+          ty = (Y[i] - sourceY[mask]).sum()
+          a  = np.arctan2(ty,tx)
           X[oo] = X[i] - cos(a)*veinNodeRad
           Y[oo] = Y[i] - sin(a)*veinNodeRad
           oo += 1
 
-      if not itt % 50:
+      if not itt % 20:
         print itt,oo, time()-iti
         sys.stdout.flush()
         iti = time()
 
-      if not sourcemask.any() or itt > MAXITT or oo > nmax:
+      if not sourcemask.any() or itt > MAXITT or oo > vmax:
         break
 
     print('itt: {:d}  time: {:f}'.format(itt,time()-ti))
