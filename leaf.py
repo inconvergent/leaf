@@ -2,11 +2,10 @@
 # -*- coding: utf-8 -*-
 
 
-from numpy import cos, sin, pi, arctan2, sqrt, square, int
-from numpy.random import random
 import numpy as np
 import cairo,Image
 from time import time as time
+from itertools import product as cartesian
 import sys
 
 
@@ -15,24 +14,35 @@ def main():
   time to load up the ponies
   """
 
-  # GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
+  ## numpy functions
 
-  SIZE        = 3000
+  cos    = np.cos
+  sin    = np.sin
+  arctan = np.arctan2
+  sqrt   = np.sqrt
+  random = np.random.random
+  pi     = np.pi
+  ft     = np.float64
+  bigint = np.int64
+
+  ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
+
+  SIZE        = 1000
   BACK        = 1.
   FRONT       = 0.
   OUT         = './img.png'
   STP         = 1./SIZE
   C           = 0.5
   RAD         = 0.4
-  MAXITT      = 500
+  MAXITT      = 200
 
-  # GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
+  ## GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
 
   sourceDist  = 10.*STP
   killzone    = 8.*STP
   veinNodeRad = 5.*STP
   nmax        = 2*1e6
-  smax        = 2500
+  smax        = 100
 
 
   def ctxInit():
@@ -74,7 +84,7 @@ def main():
     """
     t = pi*2*random(n)
     u = random(n)+random(n)
-    r = np.zeros(n,dtype=np.float)
+    r = np.zeros(n,dtype=ft)
     mask = u>1.
     xmask = np.logical_not(mask)
     r[mask] = 2.-u[mask]
@@ -92,18 +102,18 @@ def main():
       if (dd > sourceDist).all():
         o.append(i)
 
-    o = np.array(o,dtype=np.int)
+    o = np.array(o,dtype=bigint)
     return gridx[o],gridy[o]
 
-  # INITIALIZE
+  ### INITIALIZE
 
   ctx.set_line_width(2./SIZE)
 
-  # ARRAYS
+  ## ARRAYS
 
-  X      = np.zeros(nmax,dtype=np.float)
-  Y      = np.zeros(nmax,dtype=np.float)
-  PARENT = np.zeros(nmax,dtype=np.int)
+  X      = np.zeros(nmax,dtype=ft)
+  Y      = np.zeros(nmax,dtype=ft)
+  PARENT = np.zeros(nmax,dtype=bigint)
 
   sourceX,sourceY = darts(C,C,RAD,smax)
   sourcemask = np.zeros(len(sourceX),dtype=np.bool)
@@ -114,17 +124,15 @@ def main():
   #vcirc(sourceX,sourceY,[sourceDist/2.]*len(sourceX))
   #ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
-  # (START) VEIN NODES
+  ## (START) VEIN NODES
 
-  ## 0 is right, -PI/2 is down
+  ## 0 is right, -np.pi/2 is down
 
   X[0] = C
   Y[0] = C+RAD
-  X[1] = C
-  Y[1] = C-RAD
-  oo   = 2
+  oo   = 1
 
-  # MAIN LOOP
+  ### MAIN LOOP
 
   itt = 0
   ti  = time()
@@ -133,17 +141,33 @@ def main():
     while True:
       itt += 1
 
-      # distances from vein nodes to source nodes
-      dd = []
+      ## distance: vein nodes -> source nodes
+      distVS = np.zeros((oo,sourceX.shape[0]),dtype=ft)
       for i in xrange(oo):
-        dx = X[i] - sourceX
-        dy = Y[i] - sourceY
-        d  = sqrt(dx*dx+dy*dy)
-        dd.append(d)
-        sourcemask[d < killzone] = False
+        vsx = (X[i] - sourceX)**2
+        vsy = (Y[i] - sourceY)**2
+        distVS[i,:] = vsx+vsy
+      distVS = sqrt(distVS)
       
-      distances = np.vstack(dd)
-      nodemap   = distances.argmin(axis=0)
+      ## distance: vein nodes -> vein nodes
+      #distVV = np.zeros((oo,oo),dtype=ft)
+      #for i in range(oo):
+        #vvx = (X[:oo,None] - X[i])**2
+        #vvy = (Y[:oo,None] - Y[i])**2
+        #distVV[:,i]  = (vvx+vvy)[:,0]
+      #distVV = sqrt(distVV)
+      
+      ## mask out dead source nodes
+      for i in xrange(oo):
+        sourcemask[distVS[i,:] < killzone] = False
+
+      # s source node
+      # v vein node
+      # u "all other points"
+      # (for all u) ||v-s|| < max{ ||u-s||, ||v-u|| } 
+
+      ## map: source node -> vein node
+      nodemap   = distVS.argmin(axis=0)
      
       for i in xrange(oo):
         mask = np.logical_and(nodemap==i,sourcemask)
@@ -152,7 +176,7 @@ def main():
           dy = Y[i] - sourceY[mask]
           tx    = dx.sum()
           ty    = dy.sum()
-          a     = arctan2(ty,tx)
+          a     = np.arctan2(ty,tx)
           X[oo] = X[i] - cos(a)*veinNodeRad
           Y[oo] = Y[i] - sin(a)*veinNodeRad
           oo += 1
@@ -169,17 +193,16 @@ def main():
   except KeyboardInterrupt:
     pass
   finally:
-    # show source nodes
+    ## show source nodes
     #ctx.set_source_rgb(1,0,0)
     #vcirc(sourceX[sourcemask],sourceY[sourcemask],\
           #[sourceDist/2.]*sourcemask.sum())
     
-    # show wein nodes
+    ## show wein nodes
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
     vcirc(X[:oo],Y[:oo],[veinNodeRad/2]*(oo))
-    print oo
 
-    # save to file
+    ## save to file
     sur.write_to_png('{:s}'.format(OUT))
 
   return
