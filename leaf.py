@@ -34,15 +34,14 @@ def main():
   STP         = 1./SIZE
   C           = 0.5
   RAD         = 0.4
-  MAXITT      = 200
 
   ## GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
 
   sourceDist  = 10.*STP
-  killzone    = 8. *STP
+  killzone    = 10. *STP
   veinNodeRad = 5. *STP
   vmax        = 2  *1e6
-  smax        = 20
+  smax        = 200
 
 
   def ctxInit():
@@ -117,8 +116,6 @@ def main():
 
   sourceX,sourceY = darts(C,C,RAD,smax)
   snum = sourceX.shape[0]
-  sourcemask = np.zeros(snum,dtype=np.bool)
-  sourcemask[:] = True
 
   ## SHOW SOURCE NODES
   ctx.set_source_rgb(1,0,0)
@@ -167,7 +164,7 @@ def main():
         for i in xrange(oo):
           k = np.ones(oo,dtype=np.bool)
           k[i] = False
-          for j in sourcemask.nonzero()[0]:
+          for j in xrange(snum):
             ma = np.vstack( [distVS[k,j],\
                              distVV[k,i]] ).max(axis=0)
             if (distVS[i,j]<ma).all():
@@ -181,36 +178,40 @@ def main():
                   shape=(oo,snum),dtype=np.bool ).tocsr()
 
       ## mask out dead source nodes
+      sourcemask = np.ones(snum,dtype=np.bool)
       for i in xrange(oo):
         sourcemask[distVS[i,:] < killzone] = False
 
+      ## grow new vein nodes
+      cont = False
       for i in xrange(oo):
         mask = nodemap[i,:].nonzero()[1]
         if mask.any():
+          cont = True
           tx = (X[i] - sourceX[mask]).sum()
           ty = (Y[i] - sourceY[mask]).sum()
           a  = np.arctan2(ty,tx)
           X[oo] = X[i] - cos(a)*veinNodeRad
           Y[oo] = Y[i] - sin(a)*veinNodeRad
           oo += 1
+      
+      if not cont:
+        break
+
+      ## map out dead source nodes
+      sourceX = sourceX[sourcemask]
+      sourceY = sourceY[sourcemask]
+      snum = sourceX.shape[0]
 
       if not itt % 20:
         print itt,oo, time()-iti
         sys.stdout.flush()
         iti = time()
 
-      if not sourcemask.any() or oo > vmax:
-        break
-
     print('itt: {:d}  time: {:f}'.format(itt,time()-ti))
   except KeyboardInterrupt:
     pass
   finally:
-    ## show source nodes
-    #ctx.set_source_rgb(1,0,0)
-    #vcirc(sourceX[sourcemask],sourceY[sourcemask],\
-          #[sourceDist/2.]*sourcemask.sum())
-    
     ## show wein nodes
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
     vcirc(X[:oo],Y[:oo],[veinNodeRad/2]*(oo))
