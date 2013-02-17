@@ -121,9 +121,9 @@ def main():
   sourcemask[:] = True
 
   ## SHOW SOURCE NODES
-  #ctx.set_source_rgb(1,0,0)
-  #vcirc(sourceX,sourceY,[sourceDist/2.]*len(sourceX))
-  #ctx.set_source_rgb(FRONT,FRONT,FRONT)
+  ctx.set_source_rgb(1,0,0)
+  vcirc(sourceX,sourceY,[sourceDist/2.]*len(sourceX))
+  ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
   ## (START) VEIN NODES
 
@@ -141,9 +141,6 @@ def main():
   try:
     while True:
       itt += 1
-      #if itt > 3:
-        #print oo
-        #break
 
       ## distance: vein nodes -> source nodes
       distVS = np.zeros((oo,snum),dtype=ft)
@@ -161,44 +158,34 @@ def main():
         distVV[:,i]  = (vvx+vvy)[:,0]
       distVV = sqrt(distVV)
 
+
+      ## (for all u_i) ||v-s|| < max{ ||u_i-s||, ||v-u_i|| }
+      ## nodemap[i,j] == True if vein node i is relative neightbour of 
+      ## source node j
+      if oo>1:
+        row,col = [],[]
+        for i in xrange(oo):
+          k = np.ones(oo,dtype=np.bool)
+          k[i] = False
+          for j in sourcemask.nonzero()[0]:
+            ma = np.vstack( [distVS[k,j],\
+                             distVV[k,i]] ).max(axis=0)
+            if (distVS[i,j]<ma).all():
+              col.append(j)
+              row.append(i)
+      else:
+          col = range(snum)
+          row = [0]*snum
+
+      nodemap = coo_matrix( ( [True]*len(col),(row,col) ),\
+                  shape=(oo,snum),dtype=np.bool ).tocsr()
+
       ## mask out dead source nodes
       for i in xrange(oo):
         sourcemask[distVS[i,:] < killzone] = False
 
-      # (for all u_i) ||v-s|| < max{ ||u_i-s||, ||v-u_i|| }
-      
-      row = []
-      col = []
       for i in xrange(oo):
-        kk = [k for k in range(oo) if not k==i]
-        for j in xrange(snum):
-          t  = distVS[i,j]
-          ok = True
-          for k in kk:
-            try:
-              ma = np.max(distVS[k,j],distVV[i,k])
-            except Exception as e:
-              ma = 1.
-            if t >= ma:
-              ok = False
-              break
-            
-          if ok:
-            col.append(j)
-            row.append(i)
-
-      nodemap = coo_matrix( ([True]*len(col),(row,col)),\
-                  shape=(oo,snum),dtype=np.bool).tocsr()
-
-      ## map: source node -> vein node
-      #nodemap = distVS.argmin(axis=0)
-     
-      for i in xrange(oo):
-        #mask = np.logical_and(nodemap==i,sourcemask)
-        vmask   = np.logical_and(nodemap[i,:].todense(),sourcemask)
-        mask    = np.zeros(snum,dtype=np.bool)
-        mask[:] = vmask[:]
-
+        mask = nodemap[i,:].nonzero()[1]
         if mask.any():
           tx = (X[i] - sourceX[mask]).sum()
           ty = (Y[i] - sourceY[mask]).sum()
@@ -212,7 +199,7 @@ def main():
         sys.stdout.flush()
         iti = time()
 
-      if not sourcemask.any() or itt > MAXITT or oo > vmax:
+      if not sourcemask.any() or oo > vmax:
         break
 
     print('itt: {:d}  time: {:f}'.format(itt,time()-ti))
