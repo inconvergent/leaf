@@ -7,6 +7,7 @@ import cairo,Image
 from time import time as time
 import sys
 from scipy.sparse import coo_matrix,csc_matrix 
+from itertools import product
 
 
 def main():
@@ -16,14 +17,22 @@ def main():
 
   ## numpy functions
 
-  cos    = np.cos
-  sin    = np.sin
-  arctan = np.arctan2
-  sqrt   = np.sqrt
-  random = np.random.random
-  pi     = np.pi
-  ft     = np.float64
-  bigint = np.int64
+  cos     = np.cos
+  sin     = np.sin
+  arctan2 = np.arctan2
+  sqrt    = np.sqrt
+  random  = np.random.random
+  pi      = np.pi
+  ft      = np.float64
+  bigint  = np.int64
+  vstack  = np.vstack
+  dstack  = np.dstack
+  ones    = np.ones
+  zeros   = np.zeros
+
+  noteye = lambda s: np.logical_not(np.eye(s))
+
+  getmax = lambda a,b: vstack((a,b)).max(axis=0)
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
 
@@ -40,7 +49,7 @@ def main():
   sourceDist  = 10.*STP
   killzone    = 10. *STP
   veinNodeRad = 5. *STP
-  vmax        = 2  *1e6
+  vmax        = 2  *1e5
   smax        = 200
 
 
@@ -104,15 +113,55 @@ def main():
     o = np.array(o,dtype=bigint)
     return gridx[o],gridy[o]
 
+ 
+  def makeNodemap(oo,snum,distVS,distVV):
+    """
+    nodemap[i,j] == True if vein node i is relative neightbour of 
+    source node j
+    u_i is relative neightbour of s if for all u_i:
+      ||v-s|| < max{ ||u_i-s||, ||v-u_i|| }
+    """
+    if oo>1:
+      row,col = [],[]
+
+      rowext = row.extend
+      colext = col.extend
+      for i in xrange(oo):
+        repvv = np.column_stack([distVV[i,:]]*snum)
+        ma2 = dstack((distVS[:,:],repvv)).max(axis=2)
+        repvs =  np.row_stack([distVS[i,:]]*oo)
+        jj = ((repvs<ma2).sum(axis=0) == oo-1).nonzero()[0]
+        colext(jj)
+        rowext([i]*len(jj))
+
+      #rowapp = row.append
+      #colapp = col.append
+      #kk = noteye(oo)
+      #for i,j in product(xrange(oo),xrange(snum)):
+        #ma = getmax(distVS[kk[i,:],j],distVV[kk[i,:],i]) 
+        ##ma = vstack((distVS[k,j],distVV[k,i])).max(axis=0)
+        #if (distVS[i,j]<ma).all():
+          #colapp(j)
+          #rowapp(i)
+
+    else:
+      col = range(snum)
+      row = [0]*snum
+
+    nodemap = coo_matrix( ( [True]*len(col),(row,col) ),\
+                shape=(oo,snum),dtype=np.bool ).tocsr()
+
+    return nodemap
+
   ### INITIALIZE
 
   ctx.set_line_width(2./SIZE)
 
   ## ARRAYS
 
-  X      = np.zeros(vmax,dtype=ft)
-  Y      = np.zeros(vmax,dtype=ft)
-  PARENT = np.zeros(vmax,dtype=bigint)
+  X      = zeros(vmax,dtype=ft)
+  Y      = zeros(vmax,dtype=ft)
+  PARENT = zeros(vmax,dtype=bigint)
 
   sourceX,sourceY = darts(C,C,RAD,smax)
   snum = sourceX.shape[0]
@@ -133,14 +182,15 @@ def main():
   ### MAIN LOOP
 
   itt = 0
-  ti  = time()
   iti = time()
   try:
     while True:
       itt += 1
 
       ## distance: vein nodes -> source nodes
-      distVS = np.zeros((oo,snum),dtype=ft)
+      bti = time()
+
+      distVS = zeros((oo,snum),dtype=ft)
       for i in xrange(oo):
         vsx = (X[i] - sourceX)**2
         vsy = (Y[i] - sourceY)**2
@@ -148,37 +198,21 @@ def main():
       distVS = sqrt(distVS)
       
       ## distance: vein nodes -> vein nodes
-      distVV = np.zeros((oo,oo),dtype=ft)
+      distVV = zeros((oo,oo),dtype=ft)
       for i in range(oo):
         vvx = (X[:oo,None] - X[i])**2
         vvy = (Y[:oo,None] - Y[i])**2
         distVV[:,i]  = (vvx+vvy)[:,0]
       distVV = sqrt(distVV)
 
+      distt = time()-bti
 
-      ## (for all u_i) ||v-s|| < max{ ||u_i-s||, ||v-u_i|| }
-      ## nodemap[i,j] == True if vein node i is relative neightbour of 
-      ## source node j
-      if oo>1:
-        row,col = [],[]
-        for i in xrange(oo):
-          k = np.ones(oo,dtype=np.bool)
-          k[i] = False
-          for j in xrange(snum):
-            ma = np.vstack( [distVS[k,j],\
-                             distVV[k,i]] ).max(axis=0)
-            if (distVS[i,j]<ma).all():
-              col.append(j)
-              row.append(i)
-      else:
-          col = range(snum)
-          row = [0]*snum
-
-      nodemap = coo_matrix( ( [True]*len(col),(row,col) ),\
-                  shape=(oo,snum),dtype=np.bool ).tocsr()
+      bti = time()
+      nodemap = makeNodemap(oo,snum,distVS,distVV)
+      neight = time()-bti
 
       ## mask out dead source nodes
-      sourcemask = np.ones(snum,dtype=np.bool)
+      sourcemask = ones(snum,dtype=np.bool)
       for i in xrange(oo):
         sourcemask[distVS[i,:] < killzone] = False
 
@@ -190,17 +224,18 @@ def main():
           cont = True
           tx = (X[i] - sourceX[mask]).sum()
           ty = (Y[i] - sourceY[mask]).sum()
-          a  = np.arctan2(ty,tx)
+          a  = arctan2(ty,tx)
           X[oo] = X[i] - cos(a)*veinNodeRad
           Y[oo] = Y[i] - sin(a)*veinNodeRad
           oo += 1
       
+      print distt, neight 
       if not cont:
         break
 
       ## map out dead source nodes
-      sourceX = sourceX[sourcemask]
-      sourceY = sourceY[sourcemask]
+      sourceX = sourceX[sourcemask].copy()
+      sourceY = sourceY[sourcemask].copy()
       snum = sourceX.shape[0]
 
       if not itt % 20:
@@ -208,7 +243,6 @@ def main():
         sys.stdout.flush()
         iti = time()
 
-    print('itt: {:d}  time: {:f}'.format(itt,time()-ti))
   except KeyboardInterrupt:
     pass
   finally:
