@@ -17,22 +17,20 @@ def main():
 
   ## numpy functions
 
-  cos     = np.cos
-  sin     = np.sin
-  arctan2 = np.arctan2
-  sqrt    = np.sqrt
-  random  = np.random.random
-  pi      = np.pi
-  ft      = np.float64
-  bigint  = np.int64
-  vstack  = np.vstack
-  dstack  = np.dstack
-  ones    = np.ones
-  zeros   = np.zeros
-
-  noteye = lambda s: np.logical_not(np.eye(s))
-
-  getmax = lambda a,b: vstack((a,b)).max(axis=0)
+  cos      = np.cos
+  sin      = np.sin
+  arctan2  = np.arctan2
+  sqrt     = np.sqrt
+  random   = np.random.random
+  pi       = np.pi
+  ft       = np.float64
+  bigint   = np.int64
+  ones     = np.ones
+  zeros    = np.zeros
+  array    = np.array
+  bool     = np.bool
+  tile     = np.tile
+  maximum  = np.maximum
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
 
@@ -92,7 +90,7 @@ def main():
     """
     t        = 2.*pi*random(n)
     u        = random(n)+random(n)
-    r        = np.zeros(n,dtype=ft)
+    r        = zeros(n,dtype=ft)
     mask     = u>1.
     xmask    = np.logical_not(mask)
     r[mask]  = 2.-u[mask]
@@ -110,7 +108,7 @@ def main():
       if (dd > sourceDist).all():
         o.append(i)
 
-    o = np.array(o,dtype=bigint)
+    o = array(o,dtype=bigint)
     return gridx[o],gridy[o]
 
  
@@ -127,29 +125,19 @@ def main():
       rowext = row.extend
       colext = col.extend
       for i in xrange(oo):
-        repvv = np.column_stack([distVV[i,:]]*snum)
-        ma2 = dstack((distVS[:,:],repvv)).max(axis=2)
-        repvs =  np.row_stack([distVS[i,:]]*oo)
-        jj = ((repvs<ma2).sum(axis=0) == oo-1).nonzero()[0]
+        repvv = tile(distVV[i,:,None],(1,snum))
+        repvs = tile(distVS[i,:],(oo,1))
+        ma    = maximum(distVS,repvv)
+        jj    = ((repvs<ma).sum(axis=0) == oo-1).nonzero()[0]
         colext(jj)
         rowext([i]*len(jj))
-
-      #rowapp = row.append
-      #colapp = col.append
-      #kk = noteye(oo)
-      #for i,j in product(xrange(oo),xrange(snum)):
-        #ma = getmax(distVS[kk[i,:],j],distVV[kk[i,:],i]) 
-        ##ma = vstack((distVS[k,j],distVV[k,i])).max(axis=0)
-        #if (distVS[i,j]<ma).all():
-          #colapp(j)
-          #rowapp(i)
 
     else:
       col = range(snum)
       row = [0]*snum
 
     nodemap = coo_matrix( ( [True]*len(col),(row,col) ),\
-                shape=(oo,snum),dtype=np.bool ).tocsr()
+                shape=(oo,snum),dtype=bool ).tocsr()
 
     return nodemap
 
@@ -186,6 +174,7 @@ def main():
   try:
     while True:
       itt += 1
+      #timeitt = time()
 
       ## distance: vein nodes -> source nodes
       bti = time()
@@ -212,7 +201,7 @@ def main():
       neight = time()-bti
 
       ## mask out dead source nodes
-      sourcemask = ones(snum,dtype=np.bool)
+      sourcemask = ones(snum,dtype=bool)
       for i in xrange(oo):
         sourcemask[distVS[i,:] < killzone] = False
 
@@ -228,7 +217,6 @@ def main():
           X[oo] = X[i] - cos(a)*veinNodeRad
           Y[oo] = Y[i] - sin(a)*veinNodeRad
           oo += 1
-      
       print distt, neight 
       if not cont:
         break
@@ -237,6 +225,9 @@ def main():
       sourceX = sourceX[sourcemask].copy()
       sourceY = sourceY[sourcemask].copy()
       snum = sourceX.shape[0]
+
+      #timeitt = time()-timeitt
+      #print timeitt
 
       if not itt % 20:
         print itt,oo, time()-iti
