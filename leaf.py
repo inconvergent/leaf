@@ -34,21 +34,23 @@ def main():
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
 
-  SIZE        = 1000
-  BACK        = 1.
-  FRONT       = 0.
-  OUT         = './img.png'
-  STP         = 1./SIZE
-  C           = 0.5
-  RAD         = 0.4
+  SIZE   = 4000
+  BACK   = 1.
+  FRONT  = 0.
+  OUT    = './img'
+  STP    = 1./SIZE
+  C      = 0.5
+  RAD    = 0.4
+  GRAINS = 10
 
   ## GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
 
-  sourceDist  = 10.*STP
-  killzone    = 10. *STP
+  sourceDist  = 20.*STP
+  killzone    = 5. *STP
   veinNodeRad = 5. *STP
-  vmax        = 2  *1e5
-  smax        = 200
+  vmax        = 2  *1e6
+  smax        = 2000
+  rootWidth   = 10.*STP
 
 
   def ctxInit():
@@ -147,17 +149,14 @@ def main():
 
   ## ARRAYS
 
-  X      = zeros(vmax,dtype=ft)
-  Y      = zeros(vmax,dtype=ft)
-  PARENT = zeros(vmax,dtype=bigint)
+  X         = zeros(vmax,dtype=ft)
+  Y         = zeros(vmax,dtype=ft)
+  PARENT    = zeros(vmax,dtype=bigint)
+  WIDTH     = zeros(vmax,dtype=float)
+  PARENT[0] = 0
 
   sourceX,sourceY = darts(C,C,RAD,smax)
   snum = sourceX.shape[0]
-
-  ## SHOW SOURCE NODES
-  ctx.set_source_rgb(1,0,0)
-  vcirc(sourceX,sourceY,[sourceDist/2.]*len(sourceX))
-  ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
   ## (START) VEIN NODES
 
@@ -174,10 +173,8 @@ def main():
   try:
     while True:
       itt += 1
-      #timeitt = time()
 
       ## distance: vein nodes -> source nodes
-      bti = time()
 
       distVS = zeros((oo,snum),dtype=ft)
       for i in xrange(oo):
@@ -194,16 +191,7 @@ def main():
         distVV[:,i]  = (vvx+vvy)[:,0]
       distVV = sqrt(distVV)
 
-      distt = time()-bti
-
-      bti = time()
       nodemap = makeNodemap(oo,snum,distVS,distVV)
-      neight = time()-bti
-
-      ## mask out dead source nodes
-      sourcemask = ones(snum,dtype=bool)
-      for i in xrange(oo):
-        sourcemask[distVS[i,:] < killzone] = False
 
       ## grow new vein nodes
       cont = False
@@ -216,10 +204,22 @@ def main():
           a  = arctan2(ty,tx)
           X[oo] = X[i] - cos(a)*veinNodeRad
           Y[oo] = Y[i] - sin(a)*veinNodeRad
+          PARENT[oo] = i
           oo += 1
-      print distt, neight 
+
       if not cont:
         break
+
+      ## mask out dead source nodes
+      #sourcemask = ones(snum,dtype=bool)
+      #for i in xrange(distVS.shape[0]):
+        #sourcemask[distVS[i,:] < killzone] = False
+
+      sourcemask = ones(snum,dtype=bool)
+      for j in xrange(snum):
+        vinds = nodemap[:,j].nonzero()[0]
+        if (distVS[vinds,j]<killzone).all():
+          sourcemask[j] = False
 
       ## map out dead source nodes
       sourceX = sourceX[sourcemask].copy()
@@ -229,7 +229,7 @@ def main():
       #timeitt = time()-timeitt
       #print timeitt
 
-      if not itt % 20:
+      if not itt % 50:
         print itt,oo, time()-iti
         sys.stdout.flush()
         iti = time()
@@ -237,12 +237,40 @@ def main():
   except KeyboardInterrupt:
     pass
   finally:
-    ## show wein nodes
-    ctx.set_source_rgb(FRONT,FRONT,FRONT)
-    vcirc(X[:oo],Y[:oo],[veinNodeRad/2]*(oo))
 
+    ## show source nodes
+    #ctx.set_source_rgb(1,0,0)
+    #vcirc(sourceX,sourceY,[sourceDist/2.]*len(sourceX))
+    #ctx.set_source_rgb(FRONT,FRONT,FRONT)
+
+    ## simple vein width
+    i = oo-1
+    while i>1:
+      ii = PARENT[i]
+      while ii>1:
+        WIDTH[ii]+=1.
+        ii = PARENT[ii]
+      i-=1
+    wmax = WIDTH.max()
+    WIDTH = sqrt(WIDTH/wmax)*rootWidth
+    WIDTH[WIDTH<STP] = STP
+
+    ## show vein nodes
+    ctx.set_source_rgb(FRONT,FRONT,FRONT)
+    i = oo-1
+    while i>1:
+      dx = -X[i] + X[PARENT[i]]
+      dy = -Y[i] + Y[PARENT[i]]
+      a  = arctan2(dy,dx)
+      s  = random(GRAINS)*veinNodeRad*2.
+      xp = X[PARENT[i]] - s*cos(a)
+      yp = Y[PARENT[i]] - s*sin(a)
+
+      vcirc(xp,yp,[WIDTH[i]/2.]*GRAINS)
+
+      i-=1
     ## save to file
-    sur.write_to_png('{:s}'.format(OUT))
+    sur.write_to_png('{:s}.png'.format(OUT))
 
   return
 
