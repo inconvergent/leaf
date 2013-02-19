@@ -8,6 +8,7 @@ from time import time as time
 import sys
 from scipy.sparse import coo_matrix,csc_matrix 
 from itertools import product
+from scipy.spatial import Delaunay
 
 
 def main():
@@ -31,17 +32,19 @@ def main():
   bool     = np.bool
   tile     = np.tile
   maximum  = np.maximum
+  colstack = np.column_stack
+  triag    = Delaunay
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
 
-  SIZE   = 4000
+  SIZE   = 1000
   BACK   = 1.
   FRONT  = 0.
   OUT    = './img'
   STP    = 1./SIZE
   C      = 0.5
   RAD    = 0.4
-  GRAINS = 10
+  GRAINS = 5
 
   ## GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
 
@@ -49,7 +52,7 @@ def main():
   killzone    = 5. *STP
   veinNodeRad = 5. *STP
   vmax        = 2  *1e6
-  smax        = 2000
+  smax        = 1000
   rootWidth   = 10.*STP
 
 
@@ -114,25 +117,47 @@ def main():
     return gridx[o],gridy[o]
 
  
-  def makeNodemap(oo,snum,distVS,distVV):
+  def makeNodemap(oo,snum,distVS,distVV,tri,sourceX,sourceY):
     """
     nodemap[i,j] == True if vein node i is relative neightbour of 
     source node j
     u_i is relative neightbour of s if for all u_i:
       ||v-s|| < max{ ||u_i-s||, ||v-u_i|| }
     """
+
     if oo>1:
       row,col = [],[]
 
-      rowext = row.extend
-      colext = col.extend
-      for i in xrange(oo):
-        repvv = tile(distVV[i,:,None],(1,snum))
-        repvs = tile(distVS[i,:],(oo,1))
-        ma    = maximum(distVS,repvv)
-        jj    = ((repvs<ma).sum(axis=0) == oo-1).nonzero()[0]
-        colext(jj)
-        rowext([i]*len(jj))
+      rowapp = row.append
+      colapp = col.append
+      sxy = colstack((sourceX,sourceY))
+      for j in xrange(snum):
+        simplex  = tri.find_simplex(sxy[j,:])
+        vertices = tri.simplices[simplex,:]
+        nh    = tri.neighbors[vertices,:].flatten()
+        nh    = np.unique(nh[nh>-1])
+        nhs   = (tri.neighbors[nh,:]).flatten()
+        nhs   = np.unique(nhs[nhs>-1])
+        neigh = np.unique(np.append(nhs,nhs))-4
+
+        neigh = neigh[np.logical_and(neigh<oo,neigh>-1)]
+
+        for i in neigh:
+          ma = maximum(distVV[i,neigh],distVS[neigh,j])
+          jj = (distVS[i,j] < ma).sum() == ma.shape[0]-1
+          if jj:
+            colapp(j)
+            rowapp(i)
+
+      #rowext = row.extend
+      #colext = col.extend
+      #for i in xrange(oo):
+        #repvv = tile(distVV[i,:,None],(1,snum))
+        #repvs = tile(distVS[i,:],(oo,1))
+        #ma    = maximum(distVS,repvv)
+        #jj    = ((repvs<ma).sum(axis=0) == oo-1).nonzero()[0]
+        #colext(jj)
+        #rowext([i]*len(jj))
 
     else:
       col = range(snum)
@@ -162,9 +187,19 @@ def main():
 
   ## 0 is right, -np.pi/2 is down
 
+  ## triangulation needs at least four initial points
+  ## in addition we need the initial triangulation 
+  ## to contain all source nodes
+  ## remember that ndoes in tri will be four indices higher than in X,Y
+  triinit = array([[0.,0.],[0.,1.],
+                   [1.,0.],[1.,1.],
+                   [C,C+RAD]])
+  tri     = triag(triinit,incremental=True)
+  triadd  = lambda x,y: tri.add_points(colstack((x,y)))
+
+  oo   = 1
   X[0] = C
   Y[0] = C+RAD
-  oo   = 1
 
   ### MAIN LOOP
 
@@ -175,7 +210,6 @@ def main():
       itt += 1
 
       ## distance: vein nodes -> source nodes
-
       distVS = zeros((oo,snum),dtype=ft)
       for i in xrange(oo):
         vsx = (X[i] - sourceX)**2
@@ -190,11 +224,13 @@ def main():
         vvy = (Y[:oo,None] - Y[i])**2
         distVV[:,i]  = (vvx+vvy)[:,0]
       distVV = sqrt(distVV)
-
-      nodemap = makeNodemap(oo,snum,distVS,distVV)
+     
+      ## this is where the magic might happen
+      nodemap = makeNodemap(oo,snum,distVS,distVV,tri,sourceX,sourceY)
 
       ## grow new vein nodes
       cont = False
+      ooo = oo
       for i in xrange(oo):
         mask = nodemap[i,:].nonzero()[1]
         if mask.any():
@@ -206,15 +242,15 @@ def main():
           Y[oo] = Y[i] - sin(a)*veinNodeRad
           PARENT[oo] = i
           oo += 1
+        
+      ## add new points to triangulation
+      triadd(X[ooo:oo],Y[ooo:oo])
 
+      ## terminate if nothing happened.
       if not cont:
         break
 
       ## mask out dead source nodes
-      #sourcemask = ones(snum,dtype=bool)
-      #for i in xrange(distVS.shape[0]):
-        #sourcemask[distVS[i,:] < killzone] = False
-
       sourcemask = ones(snum,dtype=bool)
       for j in xrange(snum):
         vinds = nodemap[:,j].nonzero()[0]
@@ -236,6 +272,7 @@ def main():
 
   except KeyboardInterrupt:
     pass
+
   finally:
 
     ## show source nodes
@@ -244,31 +281,34 @@ def main():
     #ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
     ## simple vein width
-    i = oo-1
-    while i>1:
-      ii = PARENT[i]
-      while ii>1:
-        WIDTH[ii]+=1.
-        ii = PARENT[ii]
-      i-=1
-    wmax = WIDTH.max()
-    WIDTH = sqrt(WIDTH/wmax)*rootWidth
-    WIDTH[WIDTH<STP] = STP
+    #i = oo-1
+    #while i>1:
+      #ii = PARENT[i]
+      #while ii>1:
+        #WIDTH[ii]+=1.
+        #ii = PARENT[ii]
+      #i-=1
+    #wmax = WIDTH.max()
+    #WIDTH = sqrt(WIDTH/wmax)*rootWidth
+    #WIDTH[WIDTH<STP] = STP
 
     ## show vein nodes
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
-    i = oo-1
-    while i>1:
-      dx = -X[i] + X[PARENT[i]]
-      dy = -Y[i] + Y[PARENT[i]]
-      a  = arctan2(dy,dx)
-      s  = random(GRAINS)*veinNodeRad*2.
-      xp = X[PARENT[i]] - s*cos(a)
-      yp = Y[PARENT[i]] - s*sin(a)
+    #i = oo-1
+    #while i>1:
+      #dx = -X[i] + X[PARENT[i]]
+      #dy = -Y[i] + Y[PARENT[i]]
+      #a  = arctan2(dy,dx)
+      #s  = random(GRAINS)*veinNodeRad*2.
+      #xp = X[PARENT[i]] - s*cos(a)
+      #yp = Y[PARENT[i]] - s*sin(a)
 
-      vcirc(xp,yp,[WIDTH[i]/2.]*GRAINS)
+      #vcirc(xp,yp,[WIDTH[i]/2.]*GRAINS)
 
-      i-=1
+      #i-=1
+
+    vcirc(X[:oo],Y[:oo],[veinNodeRad/2.]*oo)
+
     ## save to file
     sur.write_to_png('{:s}.png'.format(OUT))
 
