@@ -6,11 +6,20 @@ import numpy as np
 import cairo,Image
 from time import time as time
 import sys
-from scipy.sparse import coo_matrix,csc_matrix 
-from itertools import product
+from scipy.sparse import coo_matrix
 from scipy.spatial import Delaunay
 
+def timeit(method):
+  def timed(*args, **kw):
+    ts = time()
+    result = method(*args, **kw)
+    te = time()
+    print '\n{:s} took {:2.2f} sec\n'\
+            .format(method.__name__,te-ts)
+    return result
+  return timed
 
+@timeit
 def main():
   """
   time to load up the ponies
@@ -18,22 +27,27 @@ def main():
 
   ## numpy functions
 
-  cos      = np.cos
-  sin      = np.sin
-  arctan2  = np.arctan2
-  sqrt     = np.sqrt
-  random   = np.random.random
-  pi       = np.pi
-  ft       = np.float64
-  bigint   = np.int64
-  ones     = np.ones
-  zeros    = np.zeros
-  array    = np.array
-  bool     = np.bool
-  tile     = np.tile
-  maximum  = np.maximum
-  colstack = np.column_stack
-  triag    = Delaunay
+  cos       = np.cos
+  sin       = np.sin
+  arctan2   = np.arctan2
+  sqrt      = np.sqrt
+  random    = np.random.random
+  pi        = np.pi
+  ft        = np.float64
+  bigint    = np.int64
+  ones      = np.ones
+  zeros     = np.zeros
+  array     = np.array
+  bool      = np.bool
+  tile      = np.tile
+  maximum   = np.maximum
+  colstack  = np.column_stack
+  triag     = Delaunay
+  unique    = np.unique
+  positive  = lambda a: a[a>-1]
+  vectorize = np.vectorize
+  logicNot  = np.logical_not
+  
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
 
@@ -44,18 +58,18 @@ def main():
   STP    = 1./SIZE
   C      = 0.5
   RAD    = 0.4
-  GRAINS = 5
+  GRAINS = 10
 
   ## GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
 
-  sourceDist  = 20.*STP
+  sourceDist  = 10.*STP
   killzone    = 5. *STP
   veinNodeRad = 5. *STP
   vmax        = 2  *1e6
-  smax        = 1000
+  smax        = 2000
   rootWidth   = 10.*STP
 
-
+  @timeit
   def ctxInit():
     """
     make the drawing board
@@ -76,7 +90,7 @@ def main():
     ctx.rectangle(x,y,1./SIZE,1./SIZE)
     ctx.fill()
     return
-  vstroke = np.vectorize(stroke)
+  vstroke = vectorize(stroke)
 
   def circ(x,y,cr):
     """
@@ -85,9 +99,10 @@ def main():
     ctx.arc(x,y,cr,0,2.*pi)
     ctx.fill()
     return
-  vcirc = np.vectorize(circ)
+  vcirc = vectorize(circ)
 
 
+  @timeit
   def darts(xx,yy,rr,n):
     """
     get at most n random, uniformly distributed, points in a circle.
@@ -97,7 +112,7 @@ def main():
     u        = random(n)+random(n)
     r        = zeros(n,dtype=ft)
     mask     = u>1.
-    xmask    = np.logical_not(mask)
+    xmask    = logicNot(mask)
     r[mask]  = 2.-u[mask]
     r[xmask] = u[xmask]
     xp       = rr*r*cos(t)
@@ -117,51 +132,50 @@ def main():
     return gridx[o],gridy[o]
 
  
-  def makeNodemap(oo,snum,distVS,distVV,tri,sourceX,sourceY):
+  def makeNodemap(oo,snum,distVS,distVV,tri,sX,sY):
     """
     nodemap[i,j] == True if vein node i is relative neightbour of 
     source node j
     u_i is relative neightbour of s if for all u_i:
       ||v-s|| < max{ ||u_i-s||, ||v-u_i|| }
+
+      we save time by only checking the vein nodes that belong to the
+      surounding simplices.
     """
 
-    if oo>1:
-      row,col = [],[]
+    row = []
+    col = []
+    def listapp(i,j):
+      row.append(i)
+      col.append(j)
 
-      rowapp = row.append
-      colapp = col.append
-      sxy = colstack((sourceX,sourceY))
-      for j in xrange(snum):
-        simplex  = tri.find_simplex(sxy[j,:])
-        vertices = tri.simplices[simplex,:]
-        nh    = tri.neighbors[vertices,:].flatten()
-        nh    = np.unique(nh[nh>-1])
-        nhs   = (tri.neighbors[nh,:]).flatten()
-        nhs   = np.unique(nhs[nhs>-1])
-        neigh = np.unique(np.append(nhs,nhs))-4
+    neigh      = tri.neighbors
+    simplices  = tri.simplices
+    getSimplex = tri.find_simplex
+    sxy        = colstack((sX,sY))
 
-        neigh = neigh[np.logical_and(neigh<oo,neigh>-1)]
+    for j in xrange(snum):
+      simplex    = getSimplex(sxy[j,:])
+      nsimplices = positive(neigh[simplex].flatten())
+      vertices   = positive(simplices[nsimplices,:].flatten())
+      ii         = unique(positive(vertices-4)) # 4 initial nodes in tri
 
-        for i in neigh:
-          ma = maximum(distVV[i,neigh],distVS[neigh,j])
-          jj = (distVS[i,j] < ma).sum() == ma.shape[0]-1
-          if jj:
-            colapp(j)
-            rowapp(i)
-
-      #rowext = row.extend
-      #colext = col.extend
-      #for i in xrange(oo):
-        #repvv = tile(distVV[i,:,None],(1,snum))
-        #repvs = tile(distVS[i,:],(oo,1))
-        #ma    = maximum(distVS,repvv)
-        #jj    = ((repvs<ma).sum(axis=0) == oo-1).nonzero()[0]
-        #colext(jj)
-        #rowext([i]*len(jj))
-
-    else:
-      col = range(snum)
-      row = [0]*snum
+      for i in ii:
+        ma = maximum(distVV[i,ii],distVS[ii,j])
+        jj = ( distVS[i,j]<ma ).sum() == ma.shape[0]-1
+        if jj:
+          listapp(i,j)
+    
+    ## elegant, i think, but sadly (not surprisingly) terribly slow
+    #rowext = row.extend
+    #colext = col.extend
+    #for i in xrange(oo):
+      #repvv = tile(distVV[i,:,None],(1,snum))
+      #repvs = tile(distVS[i,:],(oo,1))
+      #ma    = maximum(distVS,repvv)
+      #jj    = ((repvs<ma).sum(axis=0) == oo-1).nonzero()[0]
+      #colext(jj)
+      #rowext([i]*len(jj))
 
     nodemap = coo_matrix( ( [True]*len(col),(row,col) ),\
                 shape=(oo,snum),dtype=bool ).tocsr()
@@ -170,18 +184,16 @@ def main():
 
   ### INITIALIZE
 
-  ctx.set_line_width(2./SIZE)
 
   ## ARRAYS
 
-  X         = zeros(vmax,dtype=ft)
-  Y         = zeros(vmax,dtype=ft)
-  PARENT    = zeros(vmax,dtype=bigint)
-  WIDTH     = zeros(vmax,dtype=float)
-  PARENT[0] = 0
+  X      = zeros(vmax,dtype=ft)
+  Y      = zeros(vmax,dtype=ft)
+  PARENT = zeros(vmax,dtype=bigint)
+  WIDTH  = zeros(vmax,dtype=float)
 
-  sourceX,sourceY = darts(C,C,RAD,smax)
-  snum = sourceX.shape[0]
+  sX,sY = darts(C,C,RAD,smax)
+  snum = sX.shape[0]
 
   ## (START) VEIN NODES
 
@@ -197,9 +209,10 @@ def main():
   tri     = triag(triinit,incremental=True)
   triadd  = lambda x,y: tri.add_points(colstack((x,y)))
 
-  oo   = 1
-  X[0] = C
-  Y[0] = C+RAD
+  oo        = 1
+  X[0]      = C
+  Y[0]      = C+RAD
+  PARENT[0] = 0
 
   ### MAIN LOOP
 
@@ -212,8 +225,8 @@ def main():
       ## distance: vein nodes -> source nodes
       distVS = zeros((oo,snum),dtype=ft)
       for i in xrange(oo):
-        vsx = (X[i] - sourceX)**2
-        vsy = (Y[i] - sourceY)**2
+        vsx = (X[i] - sX)**2
+        vsy = (Y[i] - sY)**2
         distVS[i,:] = vsx+vsy
       distVS = sqrt(distVS)
       
@@ -226,7 +239,7 @@ def main():
       distVV = sqrt(distVV)
      
       ## this is where the magic might happen
-      nodemap = makeNodemap(oo,snum,distVS,distVV,tri,sourceX,sourceY)
+      nodemap = makeNodemap(oo,snum,distVS,distVV,tri,sX,sY)
 
       ## grow new vein nodes
       cont = False
@@ -235,9 +248,9 @@ def main():
         mask = nodemap[i,:].nonzero()[1]
         if mask.any():
           cont = True
-          tx = (X[i] - sourceX[mask]).sum()
-          ty = (Y[i] - sourceY[mask]).sum()
-          a  = arctan2(ty,tx)
+          tx    = ( X[i]-sX[mask] ).sum()
+          ty    = ( Y[i]-sY[mask] ).sum()
+          a     = arctan2(ty,tx)
           X[oo] = X[i] - cos(a)*veinNodeRad
           Y[oo] = Y[i] - sin(a)*veinNodeRad
           PARENT[oo] = i
@@ -258,15 +271,13 @@ def main():
           sourcemask[j] = False
 
       ## map out dead source nodes
-      sourceX = sourceX[sourcemask].copy()
-      sourceY = sourceY[sourcemask].copy()
-      snum = sourceX.shape[0]
-
-      #timeitt = time()-timeitt
-      #print timeitt
+      sX = sX[sourcemask].copy()
+      sY = sY[sourcemask].copy()
+      snum = sX.shape[0]
 
       if not itt % 50:
-        print itt,oo, time()-iti
+        print('it: {:3d}\tvein nodes: {:5d}\ttime since last: {:2.2f} sec'\
+               .format(itt,oo,time()-iti))
         sys.stdout.flush()
         iti = time()
 
@@ -274,40 +285,46 @@ def main():
     pass
 
   finally:
+    
+    ## set line width if using lines
+    #ctx.set_line_width(2./SIZE)
+
+    ## set color
+    ctx.set_source_rgb(FRONT,FRONT,FRONT)
+
+    # simple vein width
+    i = oo-1
+    while i>1:
+      ii = PARENT[i]
+      while ii>1:
+        WIDTH[ii]+=1.
+        ii = PARENT[ii]
+      i-=1
+    wmax = WIDTH.max()
+    WIDTH = sqrt(WIDTH/wmax)*rootWidth
+    WIDTH[WIDTH<STP] = STP
+
+    ## show vein nodes
+    i = oo-1
+    while i>1:
+      dx = -X[i] + X[PARENT[i]]
+      dy = -Y[i] + Y[PARENT[i]]
+      a  = arctan2(dy,dx)
+      s  = random(GRAINS)*veinNodeRad*2.
+      xp = X[PARENT[i]] - s*cos(a)
+      yp = Y[PARENT[i]] - s*sin(a)
+
+      vcirc(xp,yp,[WIDTH[i]/2.]*GRAINS)
+
+      i-=1
+    
+    ## draw nodes as circles
+    #vcirc(X[:oo],Y[:oo],[veinNodeRad/2.]*oo)
 
     ## show source nodes
     #ctx.set_source_rgb(1,0,0)
-    #vcirc(sourceX,sourceY,[sourceDist/2.]*len(sourceX))
+    #vcirc(sX,sY,[sourceDist/2.]*len(sX))
     #ctx.set_source_rgb(FRONT,FRONT,FRONT)
-
-    ## simple vein width
-    #i = oo-1
-    #while i>1:
-      #ii = PARENT[i]
-      #while ii>1:
-        #WIDTH[ii]+=1.
-        #ii = PARENT[ii]
-      #i-=1
-    #wmax = WIDTH.max()
-    #WIDTH = sqrt(WIDTH/wmax)*rootWidth
-    #WIDTH[WIDTH<STP] = STP
-
-    ## show vein nodes
-    ctx.set_source_rgb(FRONT,FRONT,FRONT)
-    #i = oo-1
-    #while i>1:
-      #dx = -X[i] + X[PARENT[i]]
-      #dy = -Y[i] + Y[PARENT[i]]
-      #a  = arctan2(dy,dx)
-      #s  = random(GRAINS)*veinNodeRad*2.
-      #xp = X[PARENT[i]] - s*cos(a)
-      #yp = Y[PARENT[i]] - s*sin(a)
-
-      #vcirc(xp,yp,[WIDTH[i]/2.]*GRAINS)
-
-      #i-=1
-
-    vcirc(X[:oo],Y[:oo],[veinNodeRad/2.]*oo)
 
     ## save to file
     sur.write_to_png('{:s}.png'.format(OUT))
