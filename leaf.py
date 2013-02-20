@@ -19,6 +19,7 @@ def timeit(method):
     return result
   return timed
 
+
 @timeit
 def main():
   """
@@ -50,24 +51,40 @@ def main():
   
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
-
-  SIZE   = 1000
+  
+  ## pixel size of canvas
+  SIZE   = 1500
+  ## background color (white)
   BACK   = 1.
+  ## foreground color (black)
   FRONT  = 0.
-  OUT    = './img'
+  ## filename of image
+  OUT    = './q.img'
+  ## size of pixels on canvas
   STP    = 1./SIZE
+  ## center of canvas
   C      = 0.5
+  ## radius of circle with source nodes
   RAD    = 0.4
+  ## number of grains used to sand paint each vein node
   GRAINS = 10
+  ## because five is right out
+  FOUR = 4
 
   ## GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
-
+  
+  ## minimum distance between source nodes
   sourceDist  = 10.*STP
-  killzone    = 5. *STP
-  veinNodeRad = 5. *STP
-  vmax        = 2  *1e6
-  smax        = 2000
-  rootWidth   = 10.*STP
+  ## vein nodes die when they get this close to a source node
+  killzone    = 5.*STP
+  ## radius of vein nodes when rendered
+  veinNodeRad = 4.*STP
+  ## maximum number of vein nodes
+  vmax        = 2*1e6
+  ## maximum number of source nodes
+  smax        = 1500
+  ## widht of widest vein node when rendered
+  rootWidth   = 13.*STP
 
   @timeit
   def ctxInit():
@@ -134,9 +151,9 @@ def main():
  
   def makeNodemap(oo,snum,distVS,distVV,tri,sX,sY):
     """
-    nodemap[i,j] == True if vein node i is relative neightbour of 
+    nodemap[i,j] == True if vein node i is relative neighbor of 
     source node j
-    u_i is relative neightbour of s if for all u_i:
+    u_i is relative neighbor of s if for all u_i:
       ||v-s|| < max{ ||u_i-s||, ||v-u_i|| }
 
       we save time by only checking the vein nodes that belong to the
@@ -158,7 +175,7 @@ def main():
       simplex    = getSimplex(sxy[j,:])
       nsimplices = positive(neigh[simplex].flatten())
       vertices   = positive(simplices[nsimplices,:].flatten())
-      ii         = unique(positive(vertices-4)) # 4 initial nodes in tri
+      ii         = unique(positive(vertices-FOUR)) # 4 initial nodes in tri
 
       for i in ii:
         ma = maximum(distVV[i,ii],distVS[ii,j])
@@ -166,17 +183,6 @@ def main():
         if jj:
           listapp(i,j)
     
-    ## elegant, i think, but sadly (not surprisingly) terribly slow
-    #rowext = row.extend
-    #colext = col.extend
-    #for i in xrange(oo):
-      #repvv = tile(distVV[i,:,None],(1,snum))
-      #repvs = tile(distVS[i,:],(oo,1))
-      #ma    = maximum(distVS,repvv)
-      #jj    = ((repvs<ma).sum(axis=0) == oo-1).nonzero()[0]
-      #colext(jj)
-      #rowext([i]*len(jj))
-
     nodemap = coo_matrix( ( [True]*len(col),(row,col) ),\
                 shape=(oo,snum),dtype=bool ).tocsr()
 
@@ -184,35 +190,49 @@ def main():
 
   ### INITIALIZE
 
-
-  ## ARRAYS
+  ## arrays
 
   X      = zeros(vmax,dtype=ft)
   Y      = zeros(vmax,dtype=ft)
-  PARENT = zeros(vmax,dtype=bigint)
+  PARENT = zeros(vmax,dtype=bigint)-1
   WIDTH  = zeros(vmax,dtype=float)
 
-  sX,sY = darts(C,C,RAD,smax)
-  snum = sX.shape[0]
+  sX,sY  = darts(C,C,RAD,smax)
+  snum   = sX.shape[0]
 
   ## (START) VEIN NODES
-
-  ## 0 is right, -np.pi/2 is down
 
   ## triangulation needs at least four initial points
   ## in addition we need the initial triangulation 
   ## to contain all source nodes
   ## remember that ndoes in tri will be four indices higher than in X,Y
-  triinit = array([[0.,0.],[0.,1.],
-                   [1.,0.],[1.,1.],
-                   [C,C+RAD]])
-  tri     = triag(triinit,incremental=True)
-  triadd  = lambda x,y: tri.add_points(colstack((x,y)))
 
-  oo        = 1
-  X[0]      = C
-  Y[0]      = C+RAD
-  PARENT[0] = 0
+  ## number of root (vein) nodes
+  initialPoints = 3
+
+  oo = initialPoints
+  xinit = zeros((initialPoints+FOUR,1))
+  yinit = zeros((initialPoints+FOUR,1))
+
+  ## don't change
+  xinit[0] = 0.; yinit[0] = 0.
+  xinit[1] = 1.; yinit[1] = 0.
+  xinit[2] = 1.; yinit[2] = 1.
+  xinit[3] = 0.; yinit[3] = 1.
+  
+  for i in xrange(initialPoints):
+    the = random()*2.*pi
+    s = 0.1 + random()*0.7
+    x = C   + cos(the)*RAD*s
+    y = C   + sin(the)*RAD*s
+
+    xinit[i+FOUR] = x
+    yinit[i+FOUR] = y
+    Y[i]          = y
+    X[i]          = x
+
+  tri    = triag(colstack((xinit,yinit)),incremental=True)
+  triadd = lambda x,y: tri.add_points(colstack((x,y)))
 
   ### MAIN LOOP
 
@@ -292,19 +312,20 @@ def main():
     ## set color
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
-    # simple vein width
-    i = oo-1
-    while i>1:
+    ## simple vein width
+    ## TODO: rewrite this
+    for i in reversed(xrange(initialPoints,oo)):
       ii = PARENT[i]
       while ii>1:
         WIDTH[ii]+=1.
         ii = PARENT[ii]
-      i-=1
+
     wmax = WIDTH.max()
     WIDTH = sqrt(WIDTH/wmax)*rootWidth
     WIDTH[WIDTH<STP] = STP
 
     ## show vein nodes
+    ## TODO: fix overshooting
     i = oo-1
     while i>1:
       dx = -X[i] + X[PARENT[i]]
