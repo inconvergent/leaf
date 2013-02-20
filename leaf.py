@@ -53,7 +53,7 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 1500
+  SIZE   = 1000
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
@@ -82,7 +82,7 @@ def main():
   ## maximum number of vein nodes
   vmax        = 2*1e6
   ## maximum number of source nodes
-  smax        = 1500
+  smax        = 200
   ## widht of widest vein node when rendered
   rootWidth   = 13.*STP
 
@@ -162,26 +162,45 @@ def main():
 
     row = []
     col = []
-    def listapp(i,j):
-      row.append(i)
-      col.append(j)
+    #def listapp(i,j):
+      #row.append(i)
+      #col.append(j)
+    def listext(i,j):
+      row.extend(i)
+      col.extend(j)
 
     neigh      = tri.neighbors
     simplices  = tri.simplices
     getSimplex = tri.find_simplex
-    sxy        = colstack((sX,sY))
+    sxy        = colstack( (sX,sY) )
 
     for j in xrange(snum):
       simplex    = getSimplex(sxy[j,:])
       nsimplices = positive(neigh[simplex].flatten())
       vertices   = positive(simplices[nsimplices,:].flatten())
       ii         = unique(positive(vertices-FOUR)) # 4 initial nodes in tri
+      iin        = ii.shape[0]
 
-      for i in ii:
-        ma = maximum(distVV[i,ii],distVS[ii,j])
-        jj = ( distVS[i,j]<ma ).sum() == ma.shape[0]-1
-        if jj:
-          listapp(i,j)
+      if iin:
+        
+        idistVV  = distVV[ii,:][:,ii]
+        idistVS  = tile( distVS[ii,j],(iin,1) ).T
+        mas      = maximum( idistVV,distVS[ii,j] )
+        compare  = iidistVS < mas
+        count    = compare.sum(axis=1)
+        mask     = count==(iin-1)
+        maskn    = mask.sum() 
+
+        if maskn > 0:
+          listext( list(ii[mask]),[j]*maskn )
+
+        #for i in ii:
+          #ma = maximum(distVV[i,ii],distVS[ii,j])
+          #jj = ( distVS[i,j]<ma ).sum() == ma.shape[0]-1
+          #if jj:
+            #print i,
+            #listapp(i,j)
+            #tmp.append((i,j))
     
     nodemap = coo_matrix( ( [True]*len(col),(row,col) ),\
                 shape=(oo,snum),dtype=bool ).tocsr()
@@ -208,7 +227,7 @@ def main():
   ## remember that ndoes in tri will be four indices higher than in X,Y
 
   ## number of root (vein) nodes
-  initialPoints = 3
+  initialPoints = 1
 
   oo = initialPoints
   xinit = zeros((initialPoints+FOUR,1))
