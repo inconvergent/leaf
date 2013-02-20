@@ -151,9 +151,9 @@ def main():
  
   def makeNodemap(oo,snum,distVS,distVV,tri,sX,sY):
     """
-    nodemap[i,j] == True if vein node i is relative neighbour of 
+    nodemap[i,j] == True if vein node i is relative neighbor of 
     source node j
-    u_i is relative neighbour of s if for all u_i:
+    u_i is relative neighbor of s if for all u_i:
       ||v-s|| < max{ ||u_i-s||, ||v-u_i|| }
 
       we save time by only checking the vein nodes that belong to the
@@ -197,8 +197,8 @@ def main():
   PARENT = zeros(vmax,dtype=bigint)-1
   WIDTH  = zeros(vmax,dtype=float)
 
-  sX,sY = darts(C,C,RAD,smax)
-  snum = sX.shape[0]
+  sX,sY  = darts(C,C,RAD,smax)
+  snum   = sX.shape[0]
 
   ## (START) VEIN NODES
 
@@ -208,7 +208,7 @@ def main():
   ## remember that ndoes in tri will be four indices higher than in X,Y
 
   ## number of root (vein) nodes
-  initialPoints = 5
+  initialPoints = 3
 
   oo = initialPoints
   xinit = zeros((initialPoints+FOUR,1))
