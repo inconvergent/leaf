@@ -53,7 +53,7 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 1000
+  SIZE   = 2000
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
@@ -82,7 +82,7 @@ def main():
   ## maximum number of vein nodes
   vmax        = 2*1e6
   ## maximum number of source nodes
-  smax        = 200
+  smax        = 2000
   ## widht of widest vein node when rendered
   rootWidth   = 13.*STP
 
@@ -169,15 +169,15 @@ def main():
       row.extend(i)
       col.extend(j)
 
-    neigh      = tri.neighbors
-    simplices  = tri.simplices
+    #neigh      = tri.neighbors
+    #simplices  = tri.simplices
     getSimplex = tri.find_simplex
     sxy        = colstack( (sX,sY) )
 
     for j in xrange(snum):
       simplex    = getSimplex(sxy[j,:])
-      nsimplices = positive(neigh[simplex].flatten())
-      vertices   = positive(simplices[nsimplices,:].flatten())
+      nsimplices = positive(tri.neighbors[simplex].flatten())
+      vertices   = positive(tri.simplices[nsimplices,:].flatten())
       ii         = unique(positive(vertices-FOUR)) # 4 initial nodes in tri
       iin        = ii.shape[0]
 
@@ -186,7 +186,7 @@ def main():
         idistVV  = distVV[ii,:][:,ii]
         idistVS  = tile( distVS[ii,j],(iin,1) ).T
         mas      = maximum( idistVV,distVS[ii,j] )
-        compare  = iidistVS < mas
+        compare  = idistVS < mas
         count    = compare.sum(axis=1)
         mask     = count==(iin-1)
         maskn    = mask.sum() 
@@ -219,6 +219,10 @@ def main():
   sX,sY  = darts(C,C,RAD,smax)
   snum   = sX.shape[0]
 
+  distVS = None
+  distVV = None
+  nodemap = None
+
   ## (START) VEIN NODES
 
   ## triangulation needs at least four initial points
@@ -227,7 +231,7 @@ def main():
   ## remember that ndoes in tri will be four indices higher than in X,Y
 
   ## number of root (vein) nodes
-  initialPoints = 1
+  initialPoints = 3
 
   oo = initialPoints
   xinit = zeros((initialPoints+FOUR,1))
@@ -240,18 +244,17 @@ def main():
   xinit[3] = 0.; yinit[3] = 1.
   
   for i in xrange(initialPoints):
-    the = random()*2.*pi
-    s = 0.1 + random()*0.7
-    x = C   + cos(the)*RAD*s
-    y = C   + sin(the)*RAD*s
+    t = random()*2.*pi
+    s = .1 + random()*0.7
+    x = C  + cos(t)*RAD*s
+    y = C  + sin(t)*RAD*s
 
     xinit[i+FOUR] = x
     yinit[i+FOUR] = y
     Y[i]          = y
     X[i]          = x
 
-  tri    = triag(colstack((xinit,yinit)),incremental=True)
-  triadd = lambda x,y: tri.add_points(colstack((x,y)))
+  tri = triag(colstack((xinit,yinit)),incremental=True)
 
   ### MAIN LOOP
 
@@ -262,22 +265,28 @@ def main():
       itt += 1
 
       ## distance: vein nodes -> source nodes
+      #print('VS')
+      del(distVS)
       distVS = zeros((oo,snum),dtype=ft)
       for i in xrange(oo):
         vsx = (X[i] - sX)**2
         vsy = (Y[i] - sY)**2
         distVS[i,:] = vsx+vsy
-      distVS = sqrt(distVS)
+      sqrt(distVS,distVS)
       
       ## distance: vein nodes -> vein nodes
+      #print('VV')
+      del(distVV)
       distVV = zeros((oo,oo),dtype=ft)
       for i in range(oo):
         vvx = (X[:oo,None] - X[i])**2
         vvy = (Y[:oo,None] - Y[i])**2
         distVV[:,i]  = (vvx+vvy)[:,0]
-      distVV = sqrt(distVV)
+      sqrt(distVV,distVV)
      
       ## this is where the magic might happen
+      #print('nodemapping')
+      del(nodemap)
       nodemap = makeNodemap(oo,snum,distVS,distVV,tri,sX,sY)
 
       ## grow new vein nodes
@@ -296,7 +305,8 @@ def main():
           oo += 1
         
       ## add new points to triangulation
-      triadd(X[ooo:oo],Y[ooo:oo])
+      #print('triangulation')
+      tri.add_points(colstack((X[ooo:oo],Y[ooo:oo])))
 
       ## terminate if nothing happened.
       if not cont:
@@ -309,12 +319,16 @@ def main():
         if (distVS[vinds,j]<killzone).all():
           sourcemask[j] = False
 
-      ## map out dead source nodes
-      sX = sX[sourcemask].copy()
-      sY = sY[sourcemask].copy()
+      ## remove dead soure nodes
+      sX = sX[sourcemask]
+      sY = sY[sourcemask]
       snum = sX.shape[0]
 
       if not itt % 50:
+        del(tri)
+        tri = triag(colstack((xinit,yinit)),incremental=True)
+        tri.add_points(colstack((X[initialPoints:oo],Y[initialPoints:oo])))
+
         print('it: {:3d}\tvein nodes: {:5d}\ttime since last: {:2.2f} sec'\
                .format(itt,oo,time()-iti))
         sys.stdout.flush()
