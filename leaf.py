@@ -48,6 +48,7 @@ def main():
   positive  = lambda a: a[a>-1]
   vectorize = np.vectorize
   logicNot  = np.logical_not
+  square    = np.square
   
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
@@ -82,9 +83,9 @@ def main():
   ## maximum number of vein nodes
   vmax        = 2*1e6
   ## maximum number of source nodes
-  smax        = 2000
+  smax        = 2500
   ## widht of widest vein node when rendered
-  rootWidth   = 13.*STP
+  rootW   = 13.*STP
 
   @timeit
   def ctxInit():
@@ -149,7 +150,7 @@ def main():
     return gridx[o],gridy[o]
 
  
-  def makeNodemap(oo,snum,distVS,distVV,tri,sX,sY):
+  def makeNodemap(snum,ldistVS,ltri,lX,lY,lsX,lsY):
     """
     nodemap[i,j] == True if vein node i is relative neighbor of 
     source node j
@@ -162,30 +163,34 @@ def main():
 
     row = []
     col = []
-    #def listapp(i,j):
-      #row.append(i)
-      #col.append(j)
     def listext(i,j):
       row.extend(i)
       col.extend(j)
 
-    #neigh      = tri.neighbors
-    #simplices  = tri.simplices
-    getSimplex = tri.find_simplex
-    sxy        = colstack( (sX,sY) )
+    #neigh      = ltri.neighbors
+    #simplices  = ltri.simplices
+    getSimplex = ltri.find_simplex
+    sxy        = colstack( (lsX,lsY) )
 
     for j in xrange(snum):
       simplex    = getSimplex(sxy[j,:])
-      nsimplices = positive(tri.neighbors[simplex].flatten())
-      vertices   = positive(tri.simplices[nsimplices,:].flatten())
+      nsimplices = positive(ltri.neighbors[simplex].flatten())
+      vertices   = positive(ltri.simplices[nsimplices,:].flatten())
       ii         = unique(positive(vertices-FOUR)) # 4 initial nodes in tri
       iin        = ii.shape[0]
 
       if iin:
+
+        ## distance: vein nodes -> vein nodes
+        idistVV = zeros((iin,iin),dtype=ft)
+        for k,i in enumerate(ii):
+          vvx = square(X[ii] - X[i])
+          vvy = square(Y[ii] - Y[i])
+          idistVV[:,k]  = (vvx+vvy)
+        sqrt(idistVV,idistVV)
         
-        idistVV  = distVV[ii,:][:,ii]
-        idistVS  = tile( distVS[ii,j],(iin,1) ).T
-        mas      = maximum( idistVV,distVS[ii,j] )
+        idistVS  = tile( ldistVS[ii,j],(iin,1) ).T
+        mas      = maximum( idistVV,ldistVS[ii,j] )
         compare  = idistVS < mas
         count    = compare.sum(axis=1)
         mask     = count==(iin-1)
@@ -193,14 +198,6 @@ def main():
 
         if maskn > 0:
           listext( list(ii[mask]),[j]*maskn )
-
-        #for i in ii:
-          #ma = maximum(distVV[i,ii],distVS[ii,j])
-          #jj = ( distVS[i,j]<ma ).sum() == ma.shape[0]-1
-          #if jj:
-            #print i,
-            #listapp(i,j)
-            #tmp.append((i,j))
     
     nodemap = coo_matrix( ( [True]*len(col),(row,col) ),\
                 shape=(oo,snum),dtype=bool ).tocsr()
@@ -213,8 +210,8 @@ def main():
 
   X      = zeros(vmax,dtype=ft)
   Y      = zeros(vmax,dtype=ft)
-  PARENT = zeros(vmax,dtype=bigint)-1
-  WIDTH  = zeros(vmax,dtype=float)
+  P = zeros(vmax,dtype=bigint)-1
+  W  = zeros(vmax,dtype=float)
 
   sX,sY  = darts(C,C,RAD,smax)
   snum   = sX.shape[0]
@@ -231,7 +228,7 @@ def main():
   ## remember that ndoes in tri will be four indices higher than in X,Y
 
   ## number of root (vein) nodes
-  initialPoints = 3
+  initialPoints = 1
 
   oo = initialPoints
   xinit = zeros((initialPoints+FOUR,1))
@@ -246,8 +243,10 @@ def main():
   for i in xrange(initialPoints):
     t = random()*2.*pi
     s = .1 + random()*0.7
-    x = C  + cos(t)*RAD*s
-    y = C  + sin(t)*RAD*s
+    #x = C  + cos(t)*RAD*s
+    #y = C  + sin(t)*RAD*s
+    x = C
+    y = C
 
     xinit[i+FOUR] = x
     yinit[i+FOUR] = y
@@ -258,14 +257,14 @@ def main():
 
   ### MAIN LOOP
 
-  itt = 0
+  itt  = 0
+  aggt = 0
   iti = time()
   try:
     while True:
       itt += 1
 
       ## distance: vein nodes -> source nodes
-      #print('VS')
       del(distVS)
       distVS = zeros((oo,snum),dtype=ft)
       for i in xrange(oo):
@@ -274,20 +273,10 @@ def main():
         distVS[i,:] = vsx+vsy
       sqrt(distVS,distVS)
       
-      ## distance: vein nodes -> vein nodes
-      #print('VV')
-      del(distVV)
-      distVV = zeros((oo,oo),dtype=ft)
-      for i in range(oo):
-        vvx = (X[:oo,None] - X[i])**2
-        vvy = (Y[:oo,None] - Y[i])**2
-        distVV[:,i]  = (vvx+vvy)[:,0]
-      sqrt(distVV,distVV)
      
       ## this is where the magic might happen
-      #print('nodemapping')
       del(nodemap)
-      nodemap = makeNodemap(oo,snum,distVS,distVV,tri,sX,sY)
+      nodemap = makeNodemap(snum,distVS,tri,X,Y,sX,sY)
 
       ## grow new vein nodes
       cont = False
@@ -301,11 +290,10 @@ def main():
           a     = arctan2(ty,tx)
           X[oo] = X[i] - cos(a)*veinNodeRad
           Y[oo] = Y[i] - sin(a)*veinNodeRad
-          PARENT[oo] = i
+          P[oo] = i
           oo += 1
         
       ## add new points to triangulation
-      #print('triangulation')
       tri.add_points(colstack((X[ooo:oo],Y[ooo:oo])))
 
       ## terminate if nothing happened.
@@ -325,12 +313,9 @@ def main():
       snum = sX.shape[0]
 
       if not itt % 50:
-        del(tri)
-        tri = triag(colstack((xinit,yinit)),incremental=True)
-        tri.add_points(colstack((X[initialPoints:oo],Y[initialPoints:oo])))
-
-        print('it: {:3d}\tvein nodes: {:5d}\ttime since last: {:2.2f} sec'\
-               .format(itt,oo,time()-iti))
+        aggt += time()-iti
+        print("""it: {:4d} | t: {:4.2f}s | #vn: {:5d} | #sn: {:5d}"""\
+               .format(itt,aggt,oo,snum))
         sys.stdout.flush()
         iti = time()
 
@@ -339,36 +324,36 @@ def main():
 
   finally:
     
-    ## set line width if using lines
-    #ctx.set_line_width(2./SIZE)
+    ## set line W if using lines
+    #ctx.set_line_W(2./SIZE)
 
     ## set color
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
-    ## simple vein width
+    ## simple vein W
     ## TODO: rewrite this
     for i in reversed(xrange(initialPoints,oo)):
-      ii = PARENT[i]
+      ii = P[i]
       while ii>1:
-        WIDTH[ii]+=1.
-        ii = PARENT[ii]
+        W[ii]+=1.
+        ii = P[ii]
 
-    wmax = WIDTH.max()
-    WIDTH = sqrt(WIDTH/wmax)*rootWidth
-    WIDTH[WIDTH<STP] = STP
+    wmax = W.max()
+    W = sqrt(W/wmax)*rootW
+    W[W<STP] = STP
 
     ## show vein nodes
     ## TODO: fix overshooting
     i = oo-1
     while i>1:
-      dx = -X[i] + X[PARENT[i]]
-      dy = -Y[i] + Y[PARENT[i]]
+      dx = X[P[i]]-X[i]
+      dy = Y[P[i]]-Y[i]
       a  = arctan2(dy,dx)
       s  = random(GRAINS)*veinNodeRad*2.
-      xp = X[PARENT[i]] - s*cos(a)
-      yp = Y[PARENT[i]] - s*sin(a)
+      xp = X[P[i]] - s*cos(a)
+      yp = Y[P[i]] - s*sin(a)
 
-      vcirc(xp,yp,[WIDTH[i]/2.]*GRAINS)
+      vcirc(xp,yp,[W[i]/2.]*GRAINS)
 
       i-=1
     
