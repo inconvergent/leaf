@@ -3,7 +3,7 @@
 
 
 import numpy as np
-import cairo,Image
+import cairo
 from time import time as time
 import sys
 from scipy.sparse import coo_matrix
@@ -48,18 +48,19 @@ def main():
   positive  = lambda a: a[a>-1]
   vectorize = np.vectorize
   logicNot  = np.logical_not
+  square    = np.square
   
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 2000
+  SIZE   = 500
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
   FRONT  = 0.
   ## filename of image
-  OUT    = './q.img'
+  OUT    = './tmp.img'
   ## size of pixels on canvas
   STP    = 1./SIZE
   ## center of canvas
@@ -68,6 +69,8 @@ def main():
   RAD    = 0.4
   ## number of grains used to sand paint each vein node
   GRAINS = 10
+  ## alpha channel when rendering
+  ALPHA  = 1.
   ## because five is right out
   FOUR = 4
 
@@ -82,11 +85,13 @@ def main():
   ## maximum number of vein nodes
   vmax        = 2*1e6
   ## maximum number of source nodes
-  smax        = 2000
+  smax        = 100
   ## widht of widest vein node when rendered
-  rootWidth   = 13.*STP
+  rootW       = 20.*STP
+  ## number of root (vein) nodes
+  rootNodes   = 1
 
-  @timeit
+
   def ctxInit():
     """
     make the drawing board
@@ -100,6 +105,7 @@ def main():
     return sur,ctx
   sur,ctx = ctxInit()
 
+
   def stroke(x,y):
     """
     draw dot for each (x,y)
@@ -108,6 +114,7 @@ def main():
     ctx.fill()
     return
   vstroke = vectorize(stroke)
+
 
   def circ(x,y,cr):
     """
@@ -119,12 +126,40 @@ def main():
   vcirc = vectorize(circ)
 
 
-  @timeit
+  def draw(P,W,oo):
+    """
+    draws the veins
+    """
+
+    ## simple vein W
+    for i in reversed(xrange(rootNodes,oo)):
+      ii = P[i]
+      while ii>1:
+        W[ii]+=1.
+        ii = P[ii]
+
+    wmax = W.max()
+    W = sqrt(W/wmax)*rootW
+    W[W<STP] = STP
+
+    ## show vein nodes
+    for i in reversed(range(rootNodes-1,oo)):
+      dx = X[P[i]]-X[i]
+      dy = Y[P[i]]-Y[i]
+      a  = arctan2(dy,dx)
+      s  = random(GRAINS)*veinNodeRad
+      xp = X[P[i]] - cos(a)*s
+      yp = Y[P[i]] - sin(a)*s
+
+      vcirc(xp,yp,[W[i]/2.]*GRAINS)
+
+
   def darts(xx,yy,rr,n):
     """
     get at most n random, uniformly distributed, points in a circle.
     centered at (xx,yy), with radius rr.
     """
+    ## random uniform points in a circle
     t        = 2.*pi*random(n)
     u        = random(n)+random(n)
     r        = zeros(n,dtype=ft)
@@ -138,6 +173,8 @@ def main():
     gridy    = yy+yp
 
     o = []
+    ## we only want points that have no neghbors 
+    ## within radius sourceDist
     for i in xrange(n-1):
       dx = gridx[i] - gridx[i+1:]
       dy = gridy[i] - gridy[i+1:]
@@ -149,7 +186,7 @@ def main():
     return gridx[o],gridy[o]
 
  
-  def makeNodemap(oo,snum,distVS,distVV,tri,sX,sY):
+  def makeNodemap(snum,ldistVS,ltri,lX,lY,lsX,lsY):
     """
     nodemap[i,j] == True if vein node i is relative neighbor of 
     source node j
@@ -162,30 +199,34 @@ def main():
 
     row = []
     col = []
-    #def listapp(i,j):
-      #row.append(i)
-      #col.append(j)
     def listext(i,j):
       row.extend(i)
       col.extend(j)
 
-    #neigh      = tri.neighbors
-    #simplices  = tri.simplices
-    getSimplex = tri.find_simplex
-    sxy        = colstack( (sX,sY) )
+    #neigh      = ltri.neighbors
+    #simplices  = ltri.simplices
+    getSimplex = ltri.find_simplex
+    sxy        = colstack( (lsX,lsY) )
 
     for j in xrange(snum):
       simplex    = getSimplex(sxy[j,:])
-      nsimplices = positive(tri.neighbors[simplex].flatten())
-      vertices   = positive(tri.simplices[nsimplices,:].flatten())
+      nsimplices = positive( ltri.neighbors[simplex].flatten() )
+      vertices   = positive( ltri.simplices[nsimplices,:].flatten() )
       ii         = unique(positive(vertices-FOUR)) # 4 initial nodes in tri
       iin        = ii.shape[0]
 
       if iin:
+
+        ## distance: vein nodes -> vein nodes
+        idistVV = zeros((iin,iin),dtype=ft)
+        for k,i in enumerate(ii):
+          vvx = square( X[ii]-X[i] )
+          vvy = square( Y[ii]-Y[i] )
+          idistVV[:,k]  = ( vvx+vvy) 
+        sqrt(idistVV,idistVV)
         
-        idistVV  = distVV[ii,:][:,ii]
-        idistVS  = tile( distVS[ii,j],(iin,1) ).T
-        mas      = maximum( idistVV,distVS[ii,j] )
+        idistVS  = tile( ldistVS[ii,j],(iin,1) ).T
+        mas      = maximum( idistVV,ldistVS[ii,j] )
         compare  = idistVS < mas
         count    = compare.sum(axis=1)
         mask     = count==(iin-1)
@@ -193,34 +234,26 @@ def main():
 
         if maskn > 0:
           listext( list(ii[mask]),[j]*maskn )
-
-        #for i in ii:
-          #ma = maximum(distVV[i,ii],distVS[ii,j])
-          #jj = ( distVS[i,j]<ma ).sum() == ma.shape[0]-1
-          #if jj:
-            #print i,
-            #listapp(i,j)
-            #tmp.append((i,j))
     
     nodemap = coo_matrix( ( [True]*len(col),(row,col) ),\
                 shape=(oo,snum),dtype=bool ).tocsr()
 
     return nodemap
 
+
   ### INITIALIZE
 
   ## arrays
 
-  X      = zeros(vmax,dtype=ft)
-  Y      = zeros(vmax,dtype=ft)
-  PARENT = zeros(vmax,dtype=bigint)-1
-  WIDTH  = zeros(vmax,dtype=float)
+  X = zeros(vmax,dtype=ft)
+  Y = zeros(vmax,dtype=ft)
+  P = zeros(vmax,dtype=bigint)-1
+  W = zeros(vmax,dtype=float)
 
-  sX,sY  = darts(C,C,RAD,smax)
-  snum   = sX.shape[0]
+  sX,sY = darts(C,C,RAD,smax)
+  snum  = sX.shape[0]
 
-  distVS = None
-  distVV = None
+  distVS  = None
   nodemap = None
 
   ## (START) VEIN NODES
@@ -230,12 +263,9 @@ def main():
   ## to contain all source nodes
   ## remember that ndoes in tri will be four indices higher than in X,Y
 
-  ## number of root (vein) nodes
-  initialPoints = 3
-
-  oo = initialPoints
-  xinit = zeros((initialPoints+FOUR,1))
-  yinit = zeros((initialPoints+FOUR,1))
+  oo = rootNodes
+  xinit = zeros( (rootNodes+FOUR,1) )
+  yinit = zeros( (rootNodes+FOUR,1) )
 
   ## don't change
   xinit[0] = 0.; yinit[0] = 0.
@@ -243,7 +273,7 @@ def main():
   xinit[2] = 1.; yinit[2] = 1.
   xinit[3] = 0.; yinit[3] = 1.
   
-  for i in xrange(initialPoints):
+  for i in xrange(rootNodes):
     t = random()*2.*pi
     s = .1 + random()*0.7
     x = C  + cos(t)*RAD*s
@@ -251,43 +281,32 @@ def main():
 
     xinit[i+FOUR] = x
     yinit[i+FOUR] = y
-    Y[i]          = y
     X[i]          = x
+    Y[i]          = y
 
-  tri = triag(colstack((xinit,yinit)),incremental=True)
+  tri = triag(colstack( (xinit,yinit) ),incremental=True)
 
   ### MAIN LOOP
 
-  itt = 0
+  itt  = 0
+  aggt = 0
   iti = time()
   try:
     while True:
       itt += 1
 
       ## distance: vein nodes -> source nodes
-      #print('VS')
       del(distVS)
       distVS = zeros((oo,snum),dtype=ft)
       for i in xrange(oo):
-        vsx = (X[i] - sX)**2
-        vsy = (Y[i] - sY)**2
+        vsx = square( X[i]-sX )
+        vsy = square( Y[i]-sY )
         distVS[i,:] = vsx+vsy
       sqrt(distVS,distVS)
       
-      ## distance: vein nodes -> vein nodes
-      #print('VV')
-      del(distVV)
-      distVV = zeros((oo,oo),dtype=ft)
-      for i in range(oo):
-        vvx = (X[:oo,None] - X[i])**2
-        vvy = (Y[:oo,None] - Y[i])**2
-        distVV[:,i]  = (vvx+vvy)[:,0]
-      sqrt(distVV,distVV)
-     
       ## this is where the magic might happen
-      #print('nodemapping')
       del(nodemap)
-      nodemap = makeNodemap(oo,snum,distVS,distVV,tri,sX,sY)
+      nodemap = makeNodemap(snum,distVS,tri,X,Y,sX,sY)
 
       ## grow new vein nodes
       cont = False
@@ -301,11 +320,10 @@ def main():
           a     = arctan2(ty,tx)
           X[oo] = X[i] - cos(a)*veinNodeRad
           Y[oo] = Y[i] - sin(a)*veinNodeRad
-          PARENT[oo] = i
+          P[oo] = i
           oo += 1
         
       ## add new points to triangulation
-      #print('triangulation')
       tri.add_points(colstack((X[ooo:oo],Y[ooo:oo])))
 
       ## terminate if nothing happened.
@@ -320,17 +338,15 @@ def main():
           sourcemask[j] = False
 
       ## remove dead soure nodes
-      sX = sX[sourcemask]
-      sY = sY[sourcemask]
+      sX   = sX[sourcemask]
+      sY   = sY[sourcemask]
       snum = sX.shape[0]
 
       if not itt % 50:
-        del(tri)
-        tri = triag(colstack((xinit,yinit)),incremental=True)
-        tri.add_points(colstack((X[initialPoints:oo],Y[initialPoints:oo])))
-
-        print('it: {:3d}\tvein nodes: {:5d}\ttime since last: {:2.2f} sec'\
-               .format(itt,oo,time()-iti))
+        aggt += time()-iti
+        print("""#i: {:6d} | #s: {:7.2f} | """\
+              """#vn: {:6d} | #sn: {:6d}"""\
+               .format(itt,aggt,oo,snum))
         sys.stdout.flush()
         iti = time()
 
@@ -338,39 +354,18 @@ def main():
     pass
 
   finally:
-    
-    ## set line width if using lines
-    #ctx.set_line_width(2./SIZE)
+
+    ## set line W if using lines
+    #ctx.set_line_W(2./SIZE)
 
     ## set color
-    ctx.set_source_rgb(FRONT,FRONT,FRONT)
+    ctx.set_source_rgba(FRONT,FRONT,FRONT,ALPHA)
 
-    ## simple vein width
-    ## TODO: rewrite this
-    for i in reversed(xrange(initialPoints,oo)):
-      ii = PARENT[i]
-      while ii>1:
-        WIDTH[ii]+=1.
-        ii = PARENT[ii]
+    ## draws all vein nodes in
+    draw(P,W,oo)
 
-    wmax = WIDTH.max()
-    WIDTH = sqrt(WIDTH/wmax)*rootWidth
-    WIDTH[WIDTH<STP] = STP
-
-    ## show vein nodes
-    ## TODO: fix overshooting
-    i = oo-1
-    while i>1:
-      dx = -X[i] + X[PARENT[i]]
-      dy = -Y[i] + Y[PARENT[i]]
-      a  = arctan2(dy,dx)
-      s  = random(GRAINS)*veinNodeRad*2.
-      xp = X[PARENT[i]] - s*cos(a)
-      yp = Y[PARENT[i]] - s*sin(a)
-
-      vcirc(xp,yp,[WIDTH[i]/2.]*GRAINS)
-
-      i-=1
+    ## save to file
+    sur.write_to_png('{:s}.veins.png'.format(OUT))
     
     ## draw nodes as circles
     #vcirc(X[:oo],Y[:oo],[veinNodeRad/2.]*oo)
@@ -379,9 +374,6 @@ def main():
     #ctx.set_source_rgb(1,0,0)
     #vcirc(sX,sY,[sourceDist/2.]*len(sX))
     #ctx.set_source_rgb(FRONT,FRONT,FRONT)
-
-    ## save to file
-    sur.write_to_png('{:s}.png'.format(OUT))
 
   return
 
