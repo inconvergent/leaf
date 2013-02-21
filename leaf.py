@@ -60,7 +60,7 @@ def main():
   ## foreground color (black)
   FRONT  = 0.
   ## filename of image
-  OUT    = './q.img'
+  OUT    = './z.img'
   ## size of pixels on canvas
   STP    = 1./SIZE
   ## center of canvas
@@ -83,11 +83,13 @@ def main():
   ## maximum number of vein nodes
   vmax        = 2*1e6
   ## maximum number of source nodes
-  smax        = 2500
+  smax        = 2000
   ## widht of widest vein node when rendered
-  rootW   = 13.*STP
+  rootW       = 13.*STP
+  ## number of root (vein) nodes
+  rootNodes   = 3
 
-  @timeit
+
   def ctxInit():
     """
     make the drawing board
@@ -101,6 +103,7 @@ def main():
     return sur,ctx
   sur,ctx = ctxInit()
 
+
   def stroke(x,y):
     """
     draw dot for each (x,y)
@@ -109,6 +112,7 @@ def main():
     ctx.fill()
     return
   vstroke = vectorize(stroke)
+
 
   def circ(x,y,cr):
     """
@@ -120,7 +124,37 @@ def main():
   vcirc = vectorize(circ)
 
 
-  @timeit
+  def draw(P,W,oo):
+    """
+    draws the veins
+    """
+
+    ## simple vein W
+    for i in reversed(xrange(rootNodes,oo)):
+      ii = P[i]
+      while ii>1:
+        W[ii]+=1.
+        ii = P[ii]
+
+    wmax = W.max()
+    W = sqrt(W/wmax)*rootW
+    W[W<STP] = STP
+
+    ## show vein nodes
+    i = oo-1
+    while i>1:
+      dx = X[P[i]]-X[i]
+      dy = Y[P[i]]-Y[i]
+      a  = arctan2(dy,dx)
+      s  = random(GRAINS)*veinNodeRad*2.
+      xp = X[P[i]] - s*cos(a)
+      yp = Y[P[i]] - s*sin(a)
+
+      vcirc(xp,yp,[W[i]/2.]*GRAINS)
+
+      i-=1
+
+
   def darts(xx,yy,rr,n):
     """
     get at most n random, uniformly distributed, points in a circle.
@@ -204,20 +238,20 @@ def main():
 
     return nodemap
 
+
   ### INITIALIZE
 
   ## arrays
 
-  X      = zeros(vmax,dtype=ft)
-  Y      = zeros(vmax,dtype=ft)
+  X = zeros(vmax,dtype=ft)
+  Y = zeros(vmax,dtype=ft)
   P = zeros(vmax,dtype=bigint)-1
-  W  = zeros(vmax,dtype=float)
+  W = zeros(vmax,dtype=float)
 
-  sX,sY  = darts(C,C,RAD,smax)
-  snum   = sX.shape[0]
+  sX,sY = darts(C,C,RAD,smax)
+  snum  = sX.shape[0]
 
-  distVS = None
-  distVV = None
+  distVS  = None
   nodemap = None
 
   ## (START) VEIN NODES
@@ -227,12 +261,9 @@ def main():
   ## to contain all source nodes
   ## remember that ndoes in tri will be four indices higher than in X,Y
 
-  ## number of root (vein) nodes
-  initialPoints = 1
-
-  oo = initialPoints
-  xinit = zeros((initialPoints+FOUR,1))
-  yinit = zeros((initialPoints+FOUR,1))
+  oo = rootNodes
+  xinit = zeros( (rootNodes+FOUR,1) )
+  yinit = zeros( (rootNodes+FOUR,1) )
 
   ## don't change
   xinit[0] = 0.; yinit[0] = 0.
@@ -240,20 +271,18 @@ def main():
   xinit[2] = 1.; yinit[2] = 1.
   xinit[3] = 0.; yinit[3] = 1.
   
-  for i in xrange(initialPoints):
+  for i in xrange(rootNodes):
     t = random()*2.*pi
     s = .1 + random()*0.7
-    #x = C  + cos(t)*RAD*s
-    #y = C  + sin(t)*RAD*s
-    x = C
-    y = C
+    x = C  + cos(t)*RAD*s
+    y = C  + sin(t)*RAD*s
 
     xinit[i+FOUR] = x
     yinit[i+FOUR] = y
-    Y[i]          = y
     X[i]          = x
+    Y[i]          = y
 
-  tri = triag(colstack((xinit,yinit)),incremental=True)
+  tri = triag(colstack( (xinit,yinit) ),incremental=True)
 
   ### MAIN LOOP
 
@@ -273,7 +302,6 @@ def main():
         distVS[i,:] = vsx+vsy
       sqrt(distVS,distVS)
       
-     
       ## this is where the magic might happen
       del(nodemap)
       nodemap = makeNodemap(snum,distVS,tri,X,Y,sX,sY)
@@ -308,13 +336,14 @@ def main():
           sourcemask[j] = False
 
       ## remove dead soure nodes
-      sX = sX[sourcemask]
-      sY = sY[sourcemask]
+      sX   = sX[sourcemask]
+      sY   = sY[sourcemask]
       snum = sX.shape[0]
 
       if not itt % 50:
         aggt += time()-iti
-        print("""it: {:4d} | t: {:4.2f}s | #vn: {:5d} | #sn: {:5d}"""\
+        print("""#i: {:6d} | #s: {:7.2f} | """\
+              """#vn: {:6d} | #sn: {:6d}"""\
                .format(itt,aggt,oo,snum))
         sys.stdout.flush()
         iti = time()
@@ -323,39 +352,18 @@ def main():
     pass
 
   finally:
-    
+
     ## set line W if using lines
     #ctx.set_line_W(2./SIZE)
 
     ## set color
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
-    ## simple vein W
-    ## TODO: rewrite this
-    for i in reversed(xrange(initialPoints,oo)):
-      ii = P[i]
-      while ii>1:
-        W[ii]+=1.
-        ii = P[ii]
+    ## draws all vein nodes in
+    draw(P,W,oo)
 
-    wmax = W.max()
-    W = sqrt(W/wmax)*rootW
-    W[W<STP] = STP
-
-    ## show vein nodes
-    ## TODO: fix overshooting
-    i = oo-1
-    while i>1:
-      dx = X[P[i]]-X[i]
-      dy = Y[P[i]]-Y[i]
-      a  = arctan2(dy,dx)
-      s  = random(GRAINS)*veinNodeRad*2.
-      xp = X[P[i]] - s*cos(a)
-      yp = Y[P[i]] - s*sin(a)
-
-      vcirc(xp,yp,[W[i]/2.]*GRAINS)
-
-      i-=1
+    ## save to file
+    sur.write_to_png('{:s}.veins.png'.format(OUT))
     
     ## draw nodes as circles
     #vcirc(X[:oo],Y[:oo],[veinNodeRad/2.]*oo)
@@ -364,9 +372,6 @@ def main():
     #ctx.set_source_rgb(1,0,0)
     #vcirc(sX,sY,[sourceDist/2.]*len(sX))
     #ctx.set_source_rgb(FRONT,FRONT,FRONT)
-
-    ## save to file
-    sur.write_to_png('{:s}.png'.format(OUT))
 
   return
 
