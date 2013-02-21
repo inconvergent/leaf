@@ -3,7 +3,7 @@
 
 
 import numpy as np
-import cairo,Image
+import cairo
 from time import time as time
 import sys
 from scipy.sparse import coo_matrix
@@ -69,6 +69,8 @@ def main():
   RAD    = 0.4
   ## number of grains used to sand paint each vein node
   GRAINS = 10
+  ## alpha channel when rendering
+  ALPHA  = 1.
   ## because five is right out
   FOUR = 4
 
@@ -87,7 +89,7 @@ def main():
   ## widht of widest vein node when rendered
   rootW       = 13.*STP
   ## number of root (vein) nodes
-  rootNodes   = 3
+  rootNodes   = 1
 
 
   def ctxInit():
@@ -141,18 +143,15 @@ def main():
     W[W<STP] = STP
 
     ## show vein nodes
-    i = oo-1
-    while i>1:
+    for i in reversed(range(rootNodes-1,oo)):
       dx = X[P[i]]-X[i]
       dy = Y[P[i]]-Y[i]
       a  = arctan2(dy,dx)
-      s  = random(GRAINS)*veinNodeRad*2.
-      xp = X[P[i]] - s*cos(a)
-      yp = Y[P[i]] - s*sin(a)
+      s  = random(GRAINS)*veinNodeRad
+      xp = X[P[i]] - cos(a)*s
+      yp = Y[P[i]] - sin(a)*s
 
       vcirc(xp,yp,[W[i]/2.]*GRAINS)
-
-      i-=1
 
 
   def darts(xx,yy,rr,n):
@@ -160,6 +159,7 @@ def main():
     get at most n random, uniformly distributed, points in a circle.
     centered at (xx,yy), with radius rr.
     """
+    ## random uniform points in a circle
     t        = 2.*pi*random(n)
     u        = random(n)+random(n)
     r        = zeros(n,dtype=ft)
@@ -173,6 +173,8 @@ def main():
     gridy    = yy+yp
 
     o = []
+    ## we only want points that have no neghbors 
+    ## within radius sourceDist
     for i in xrange(n-1):
       dx = gridx[i] - gridx[i+1:]
       dy = gridy[i] - gridy[i+1:]
@@ -208,8 +210,8 @@ def main():
 
     for j in xrange(snum):
       simplex    = getSimplex(sxy[j,:])
-      nsimplices = positive(ltri.neighbors[simplex].flatten())
-      vertices   = positive(ltri.simplices[nsimplices,:].flatten())
+      nsimplices = positive( ltri.neighbors[simplex].flatten() )
+      vertices   = positive( ltri.simplices[nsimplices,:].flatten() )
       ii         = unique(positive(vertices-FOUR)) # 4 initial nodes in tri
       iin        = ii.shape[0]
 
@@ -218,9 +220,9 @@ def main():
         ## distance: vein nodes -> vein nodes
         idistVV = zeros((iin,iin),dtype=ft)
         for k,i in enumerate(ii):
-          vvx = square(X[ii] - X[i])
-          vvy = square(Y[ii] - Y[i])
-          idistVV[:,k]  = (vvx+vvy)
+          vvx = square( X[ii]-X[i] )
+          vvy = square( Y[ii]-Y[i] )
+          idistVV[:,k]  = ( vvx+vvy) 
         sqrt(idistVV,idistVV)
         
         idistVS  = tile( ldistVS[ii,j],(iin,1) ).T
@@ -297,8 +299,8 @@ def main():
       del(distVS)
       distVS = zeros((oo,snum),dtype=ft)
       for i in xrange(oo):
-        vsx = (X[i] - sX)**2
-        vsy = (Y[i] - sY)**2
+        vsx = square( X[i]-sX )
+        vsy = square( Y[i]-sY )
         distVS[i,:] = vsx+vsy
       sqrt(distVS,distVS)
       
@@ -357,7 +359,7 @@ def main():
     #ctx.set_line_W(2./SIZE)
 
     ## set color
-    ctx.set_source_rgb(FRONT,FRONT,FRONT)
+    ctx.set_source_rgba(FRONT,FRONT,FRONT,ALPHA)
 
     ## draws all vein nodes in
     draw(P,W,oo)
