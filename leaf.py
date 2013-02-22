@@ -7,7 +7,8 @@ import cairo
 from time import time as time
 import sys
 from scipy.sparse import coo_matrix
-from scipy.spatial import Delaunay
+from scipy.spatial import Delaunay,distance
+
 
 def timeit(method):
   def timed(*args, **kw):
@@ -49,18 +50,19 @@ def main():
   vectorize = np.vectorize
   logicNot  = np.logical_not
   square    = np.square
-  
+  linspace  = np.linspace
+  cdist     = distance.cdist
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 500
+  SIZE   = 4000
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
   FRONT  = 0.
   ## filename of image
-  OUT    = './tmp.img'
+  OUT    = './tmp.2.img'
   ## size of pixels on canvas
   STP    = 1./SIZE
   ## center of canvas
@@ -68,7 +70,7 @@ def main():
   ## radius of circle with source nodes
   RAD    = 0.4
   ## number of grains used to sand paint each vein node
-  GRAINS = 10
+  GRAINS = 2
   ## alpha channel when rendering
   ALPHA  = 1.
   ## because five is right out
@@ -79,17 +81,17 @@ def main():
   ## minimum distance between source nodes
   sourceDist  = 10.*STP
   ## vein nodes die when they get this close to a source node
-  killzone    = 5.*STP
+  killzone    = 1.*STP
   ## radius of vein nodes when rendered
-  veinNodeRad = 4.*STP
+  veinNodeRad = 1.*STP
   ## maximum number of vein nodes
   vmax        = 2*1e6
   ## maximum number of source nodes
-  smax        = 100
+  smax        = 6000
   ## widht of widest vein node when rendered
-  rootW       = 20.*STP
+  rootW       = 40.*STP
   ## number of root (vein) nodes
-  rootNodes   = 1
+  rootNodes   = 3
 
 
   def ctxInit():
@@ -140,18 +142,33 @@ def main():
 
     wmax = W.max()
     W = sqrt(W/wmax)*rootW
-    W[W<STP] = STP
+    W[W<2.*STP] = 2.*STP
 
     ## show vein nodes
     for i in reversed(range(rootNodes-1,oo)):
       dx = X[P[i]]-X[i]
       dy = Y[P[i]]-Y[i]
       a  = arctan2(dy,dx)
-      s  = random(GRAINS)*veinNodeRad
+      s  = linspace(0,1,GRAINS)*veinNodeRad
       xp = X[P[i]] - cos(a)*s
       yp = Y[P[i]] - sin(a)*s
 
       vcirc(xp,yp,[W[i]/2.]*GRAINS)
+
+
+  def tesselation(tri,X,Y):
+    """
+    show triangulation of all vein nodes
+    """
+
+    for s in tri.simplices:
+      ## ignore the four "container vertices" in the corners
+      if np.all(s>FOUR-1):
+        xy = tri.points[s,:]
+        ctx.move_to(xy[0,0],xy[0,1])
+        for i in xrange(2):
+          ctx.line_to(xy[i,0],xy[i,1])
+        ctx.stroke()
 
 
   def darts(xx,yy,rr,n):
@@ -203,8 +220,6 @@ def main():
       row.extend(i)
       col.extend(j)
 
-    #neigh      = ltri.neighbors
-    #simplices  = ltri.simplices
     getSimplex = ltri.find_simplex
     sxy        = colstack( (lsX,lsY) )
 
@@ -218,19 +233,15 @@ def main():
       if iin:
 
         ## distance: vein nodes -> vein nodes
-        idistVV = zeros((iin,iin),dtype=ft)
-        for k,i in enumerate(ii):
-          vvx = square( X[ii]-X[i] )
-          vvy = square( Y[ii]-Y[i] )
-          idistVV[:,k]  = ( vvx+vvy) 
-        sqrt(idistVV,idistVV)
+        xy      = colstack((X[ii],Y[ii]))
+        idistVV = cdist(xy,xy,'euclidean')
         
-        idistVS  = tile( ldistVS[ii,j],(iin,1) ).T
-        mas      = maximum( idistVV,ldistVS[ii,j] )
-        compare  = idistVS < mas
-        count    = compare.sum(axis=1)
-        mask     = count==(iin-1)
-        maskn    = mask.sum() 
+        idistVS = tile( ldistVS[ii,j],(iin,1) ).T
+        mas     = maximum( idistVV,ldistVS[ii,j] )
+        compare = idistVS < mas
+        count   = compare.sum(axis=1)
+        mask    = count==(iin-1)
+        maskn   = mask.sum() 
 
         if maskn > 0:
           listext( list(ii[mask]),[j]*maskn )
@@ -297,12 +308,9 @@ def main():
 
       ## distance: vein nodes -> source nodes
       del(distVS)
-      distVS = zeros((oo,snum),dtype=ft)
-      for i in xrange(oo):
-        vsx = square( X[i]-sX )
-        vsy = square( Y[i]-sY )
-        distVS[i,:] = vsx+vsy
-      sqrt(distVS,distVS)
+      xy     = np.column_stack((X[:oo],Y[:oo]))
+      sxy    = np.column_stack((sX,sY))
+      distVS = cdist(xy,sxy,'euclidean')
       
       ## this is where the magic might happen
       del(nodemap)
@@ -355,17 +363,27 @@ def main():
 
   finally:
 
-    ## set line W if using lines
-    #ctx.set_line_W(2./SIZE)
+    #ctx.set_line_width(1./SIZE)
+    #ctx.set_source_rgba(1.,0,0,0.7)
+
+    #tesselation(tri,X,Y)
 
     ## set color
-    ctx.set_source_rgba(FRONT,FRONT,FRONT,ALPHA)
+    ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
     ## draws all vein nodes in
     draw(P,W,oo)
 
     ## save to file
     sur.write_to_png('{:s}.veins.png'.format(OUT))
+
+    ## set line W if using lines
+
+    #ctx.set_source_rgb(BACK,BACK,BACK)
+    #ctx.rectangle(0,0,1,1)
+    #ctx.fill()
+
+    #sur.write_to_png('{:s}.tesselation.png'.format(OUT))
     
     ## draw nodes as circles
     #vcirc(X[:oo],Y[:oo],[veinNodeRad/2.]*oo)
@@ -379,4 +397,3 @@ def main():
 
 
 if __name__ == '__main__' : main()
-
