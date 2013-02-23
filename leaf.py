@@ -56,13 +56,13 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 4000
+  SIZE   = 500
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
   FRONT  = 0.
   ## filename of image
-  OUT    = './tmp.2.img'
+  OUT    = './rework.1.img'
   ## size of pixels on canvas
   STP    = 1./SIZE
   ## center of canvas
@@ -81,17 +81,17 @@ def main():
   ## minimum distance between source nodes
   sourceDist  = 10.*STP
   ## vein nodes die when they get this close to a source node
-  killzone    = 1.*STP
+  killzone    = 2.*STP
   ## radius of vein nodes when rendered
-  veinNodeRad = 1.*STP
+  veinNodeRad = 2.*STP
   ## maximum number of vein nodes
-  vmax        = 2*1e6
+  vmax        = 2*1e7
   ## maximum number of source nodes
-  smax        = 6000
+  smax        = 200
   ## widht of widest vein node when rendered
   rootW       = 40.*STP
   ## number of root (vein) nodes
-  rootNodes   = 3
+  rootNodes   = 1
 
 
   def ctxInit():
@@ -184,26 +184,23 @@ def main():
     xmask    = logicNot(mask)
     r[mask]  = 2.-u[mask]
     r[xmask] = u[xmask]
-    xp       = rr*r*cos(t)
-    yp       = rr*r*sin(t)
-    gridx    = xx+xp
-    gridy    = yy+yp
+    xyp      = colstack(( rr*r*cos(t),rr*r*sin(t) ))
+    gridxy   = xyp + array( [xx,yy] )
 
     o = []
     ## we only want points that have no neghbors 
     ## within radius sourceDist
     for i in xrange(n-1):
-      dx = gridx[i] - gridx[i+1:]
-      dy = gridy[i] - gridy[i+1:]
-      dd = sqrt(dx*dx+dy*dy)
+      dxy = gridxy[i,:] - gridxy[i+1:,:]
+      dd  = sqrt(dxy[:,0]*dxy[:,0]+dxy[:,1]*dxy[:,1])
       if (dd > sourceDist).all():
         o.append(i)
 
     o = array(o,dtype=bigint)
-    return gridx[o],gridy[o]
+    return gridxy[o,:]
 
  
-  def makeNodemap(snum,ldistVS,ltri,lX,lY,lsX,lsY):
+  def makeNodemap(snum,ldistVS,ltri,lX,lY,lsXY):
     """
     nodemap[i,j] == True if vein node i is relative neighbor of 
     source node j
@@ -221,10 +218,9 @@ def main():
       col.extend(j)
 
     getSimplex = ltri.find_simplex
-    sxy        = colstack( (lsX,lsY) )
 
     for j in xrange(snum):
-      simplex    = getSimplex(sxy[j,:])
+      simplex    = getSimplex(lsXY[j,:])
       nsimplices = positive( ltri.neighbors[simplex].flatten() )
       vertices   = positive( ltri.simplices[nsimplices,:].flatten() )
       ii         = unique(positive(vertices-FOUR)) # 4 initial nodes in tri
@@ -261,8 +257,8 @@ def main():
   P = zeros(vmax,dtype=bigint)-1
   W = zeros(vmax,dtype=float)
 
-  sX,sY = darts(C,C,RAD,smax)
-  snum  = sX.shape[0]
+  sXY  = darts(C,C,RAD,smax)
+  snum = sXY.shape[0]
 
   distVS  = None
   nodemap = None
@@ -287,8 +283,10 @@ def main():
   for i in xrange(rootNodes):
     t = random()*2.*pi
     s = .1 + random()*0.7
-    x = C  + cos(t)*RAD*s
-    y = C  + sin(t)*RAD*s
+    #x = C  + cos(t)*RAD*s
+    #y = C  + sin(t)*RAD*s
+    x = C
+    y = C
 
     xinit[i+FOUR] = x
     yinit[i+FOUR] = y
@@ -309,12 +307,11 @@ def main():
       ## distance: vein nodes -> source nodes
       del(distVS)
       xy     = np.column_stack((X[:oo],Y[:oo]))
-      sxy    = np.column_stack((sX,sY))
-      distVS = cdist(xy,sxy,'euclidean')
+      distVS = cdist(xy,sXY,'euclidean')
       
       ## this is where the magic might happen
       del(nodemap)
-      nodemap = makeNodemap(snum,distVS,tri,X,Y,sX,sY)
+      nodemap = makeNodemap(snum,distVS,tri,X,Y,sXY)
 
       ## grow new vein nodes
       cont = False
@@ -323,8 +320,8 @@ def main():
         mask = nodemap[i,:].nonzero()[1]
         if mask.any():
           cont = True
-          tx    = ( X[i]-sX[mask] ).sum()
-          ty    = ( Y[i]-sY[mask] ).sum()
+          tx    = ( X[i]-sXY[mask,0] ).sum()
+          ty    = ( Y[i]-sXY[mask,1] ).sum()
           a     = arctan2(ty,tx)
           X[oo] = X[i] - cos(a)*veinNodeRad
           Y[oo] = Y[i] - sin(a)*veinNodeRad
@@ -346,9 +343,8 @@ def main():
           sourcemask[j] = False
 
       ## remove dead soure nodes
-      sX   = sX[sourcemask]
-      sY   = sY[sourcemask]
-      snum = sX.shape[0]
+      sXY   = sXY[sourcemask,:]
+      snum = sXY.shape[0]
 
       if not itt % 50:
         aggt += time()-iti
