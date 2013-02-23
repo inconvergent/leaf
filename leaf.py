@@ -85,7 +85,7 @@ def main():
   ## radius of vein nodes when rendered
   veinNodeRad = 2.*STP
   ## maximum number of vein nodes
-  vmax        = 2*1e7
+  vmax        = 1*1e7
   ## maximum number of source nodes
   smax        = 200
   ## widht of widest vein node when rendered
@@ -128,7 +128,7 @@ def main():
   vcirc = vectorize(circ)
 
 
-  def draw(P,W,oo):
+  def draw(P,W,oo,XY):
     """
     draws the veins
     """
@@ -146,12 +146,12 @@ def main():
 
     ## show vein nodes
     for i in reversed(range(rootNodes-1,oo)):
-      dx = X[P[i]]-X[i]
-      dy = Y[P[i]]-Y[i]
+      dx = XY[P[i],0]-XY[i,0]
+      dy = XY[P[i],1]-XY[i,1]
       a  = arctan2(dy,dx)
       s  = linspace(0,1,GRAINS)*veinNodeRad
-      xp = X[P[i]] - cos(a)*s
-      yp = Y[P[i]] - sin(a)*s
+      xp = XY[P[i],0] - cos(a)*s
+      yp = XY[P[i],1] - sin(a)*s
 
       vcirc(xp,yp,[W[i]/2.]*GRAINS)
 
@@ -229,7 +229,7 @@ def main():
       if iin:
 
         ## distance: vein nodes -> vein nodes
-        xy      = colstack((X[ii],Y[ii]))
+        xy      = colstack((lX[ii],lY[ii]))
         idistVV = cdist(xy,xy,'euclidean')
         
         idistVS = tile( ldistVS[ii,j],(iin,1) ).T
@@ -247,13 +247,11 @@ def main():
 
     return nodemap
 
-
   ### INITIALIZE
 
   ## arrays
 
-  X = zeros(vmax,dtype=ft)
-  Y = zeros(vmax,dtype=ft)
+  XY = zeros((vmax,2),dtype=ft)
   P = zeros(vmax,dtype=bigint)-1
   W = zeros(vmax,dtype=float)
 
@@ -271,29 +269,20 @@ def main():
   ## remember that ndoes in tri will be four indices higher than in X,Y
 
   oo = rootNodes
-  xinit = zeros( (rootNodes+FOUR,1) )
-  yinit = zeros( (rootNodes+FOUR,1) )
+  xyinit          = zeros( (rootNodes+FOUR,2) )
+  xyinit[:FOUR,:] = array( [[0.,0.],[1.,0.],[1.,1.],[0.,1.]] )
 
-  ## don't change
-  xinit[0] = 0.; yinit[0] = 0.
-  xinit[1] = 1.; yinit[1] = 0.
-  xinit[2] = 1.; yinit[2] = 1.
-  xinit[3] = 0.; yinit[3] = 1.
-  
   for i in xrange(rootNodes):
     t = random()*2.*pi
     s = .1 + random()*0.7
     #x = C  + cos(t)*RAD*s
     #y = C  + sin(t)*RAD*s
-    x = C
-    y = C
+    xy = array([C,C])
 
-    xinit[i+FOUR] = x
-    yinit[i+FOUR] = y
-    X[i]          = x
-    Y[i]          = y
+    xyinit[i+FOUR,:] = xy
+    XY[i,:]          = xy
 
-  tri = triag(colstack( (xinit,yinit) ),incremental=True)
+  tri = triag(xyinit,incremental=True)
 
   ### MAIN LOOP
 
@@ -306,12 +295,11 @@ def main():
 
       ## distance: vein nodes -> source nodes
       del(distVS)
-      xy     = np.column_stack((X[:oo],Y[:oo]))
-      distVS = cdist(xy,sXY,'euclidean')
+      distVS = cdist(XY[:oo,:],sXY,'euclidean')
       
       ## this is where the magic might happen
       del(nodemap)
-      nodemap = makeNodemap(snum,distVS,tri,X,Y,sXY)
+      nodemap = makeNodemap(snum,distVS,tri,XY[:,0],XY[:,1],sXY)
 
       ## grow new vein nodes
       cont = False
@@ -320,16 +308,16 @@ def main():
         mask = nodemap[i,:].nonzero()[1]
         if mask.any():
           cont = True
-          tx    = ( X[i]-sXY[mask,0] ).sum()
-          ty    = ( Y[i]-sXY[mask,1] ).sum()
+          tx    = ( XY[i,0]-sXY[mask,0] ).sum()
+          ty    = ( XY[i,1]-sXY[mask,1] ).sum()
           a     = arctan2(ty,tx)
-          X[oo] = X[i] - cos(a)*veinNodeRad
-          Y[oo] = Y[i] - sin(a)*veinNodeRad
+          XY[oo,0] = XY[i,0] - cos(a)*veinNodeRad
+          XY[oo,1] = XY[i,1] - sin(a)*veinNodeRad
           P[oo] = i
           oo += 1
         
       ## add new points to triangulation
-      tri.add_points(colstack((X[ooo:oo],Y[ooo:oo])))
+      tri.add_points(XY[ooo:oo,:])
 
       ## terminate if nothing happened.
       if not cont:
@@ -343,7 +331,7 @@ def main():
           sourcemask[j] = False
 
       ## remove dead soure nodes
-      sXY   = sXY[sourcemask,:]
+      sXY  = sXY[sourcemask,:]
       snum = sXY.shape[0]
 
       if not itt % 50:
@@ -368,7 +356,7 @@ def main():
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
     ## draws all vein nodes in
-    draw(P,W,oo)
+    draw(P,W,oo,XY)
 
     ## save to file
     sur.write_to_png('{:s}.veins.png'.format(OUT))
