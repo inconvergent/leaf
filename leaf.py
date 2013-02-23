@@ -200,7 +200,7 @@ def main():
     return gridxy[o,:]
 
  
-  def makeNodemap(snum,ldistVS,ltri,lX,lY,lsXY):
+  def makeNodemap(snum,ldistVS,ltri,lXY,lsXY):
     """
     nodemap[i,j] == True if vein node i is relative neighbor of 
     source node j
@@ -229,8 +229,7 @@ def main():
       if iin:
 
         ## distance: vein nodes -> vein nodes
-        xy      = colstack((lX[ii],lY[ii]))
-        idistVV = cdist(xy,xy,'euclidean')
+        idistVV = cdist(lXY[ii,:],lXY[ii,:],'euclidean')
         
         idistVS = tile( ldistVS[ii,j],(iin,1) ).T
         mas     = maximum( idistVV,ldistVS[ii,j] )
@@ -251,12 +250,11 @@ def main():
 
   ## arrays
 
-  XY = zeros((vmax,2),dtype=ft)
-  P = zeros(vmax,dtype=bigint)-1
-  W = zeros(vmax,dtype=float)
-
-  sXY  = darts(C,C,RAD,smax)
-  snum = sXY.shape[0]
+  XY      = zeros((vmax,2),dtype=ft)
+  P       = zeros(vmax,dtype=bigint)-1
+  W       = zeros(vmax,dtype=float)
+  sXY     = darts(C,C,RAD,smax)
+  snum    = sXY.shape[0]
 
   distVS  = None
   nodemap = None
@@ -275,14 +273,14 @@ def main():
   for i in xrange(rootNodes):
     t = random()*2.*pi
     s = .1 + random()*0.7
-    #x = C  + cos(t)*RAD*s
-    #y = C  + sin(t)*RAD*s
+    #xy = C  + array( [cos(t),sin(y)] )*RAD*s
     xy = array([C,C])
 
     xyinit[i+FOUR,:] = xy
     XY[i,:]          = xy
 
-  tri = triag(xyinit,incremental=True)
+  tri    = triag(xyinit,incremental=True)
+  triadd = tri.add_points
 
   ### MAIN LOOP
 
@@ -299,7 +297,7 @@ def main():
       
       ## this is where the magic might happen
       del(nodemap)
-      nodemap = makeNodemap(snum,distVS,tri,XY[:,0],XY[:,1],sXY)
+      nodemap = makeNodemap(snum,distVS,tri,XY,sXY)
 
       ## grow new vein nodes
       cont = False
@@ -307,17 +305,15 @@ def main():
       for i in xrange(oo):
         mask = nodemap[i,:].nonzero()[1]
         if mask.any():
-          cont = True
-          tx    = ( XY[i,0]-sXY[mask,0] ).sum()
-          ty    = ( XY[i,1]-sXY[mask,1] ).sum()
-          a     = arctan2(ty,tx)
-          XY[oo,0] = XY[i,0] - cos(a)*veinNodeRad
-          XY[oo,1] = XY[i,1] - sin(a)*veinNodeRad
-          P[oo] = i
-          oo += 1
+          cont     = True
+          txy      = ( XY[i,:] -sXY[mask,:] ).sum(axis=0)
+          a        = arctan2( txy[1],txy[0] )
+          XY[oo,:] = XY[i,:] - array( [cos(a),sin(a)] )*veinNodeRad
+          P[oo]    = i
+          oo      += 1
         
       ## add new points to triangulation
-      tri.add_points(XY[ooo:oo,:])
+      triadd(XY[ooo:oo,:])
 
       ## terminate if nothing happened.
       if not cont:
