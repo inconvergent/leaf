@@ -5,10 +5,10 @@
 import numpy as np
 import cairo
 from time import time as time
+from time import strftime
 import sys
 from scipy.spatial import Delaunay,distance
 from collections import defaultdict
-
 
 def btime(a=[time()],t=''):
   if t:
@@ -63,7 +63,7 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 500
+  SIZE   = 1000
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
@@ -88,13 +88,13 @@ def main():
   ## minimum distance between source nodes
   sourceDist  = 10.*STP
   ## vein nodes die when they get this close to a source node
-  killzone    = 2.*STP
+  killzone    = STP
   ## radius of vein nodes when rendered
-  veinNodeRad = 2.*STP
+  veinNodeRad = STP
   ## maximum number of vein nodes
   vmax        = 1*1e7
   ## maximum number of source nodes
-  smax        = 200
+  smax        = 10
   ## widht of widest vein node when rendered
   rootW       = 10.*STP
   ## number of root (vein) nodes
@@ -338,9 +338,10 @@ def main():
 
       if not itt % 50:
         aggt += time()-iti
-        print("""#i: {:6d} | #s: {:7.2f} | """\
+        print("""{} | #i: {:6d} | #s: {:7.2f} | """\
               """#vn: {:6d} | #sn: {:6d}"""\
-               .format(itt,aggt,oo,snum))
+              .format(strftime("%Y-%m-%d %H:%M:%S"),\
+                               itt,aggt,oo,snum))
         sys.stdout.flush()
         iti = time()
 
