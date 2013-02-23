@@ -8,7 +8,13 @@ from time import time as time
 import sys
 from scipy.sparse import coo_matrix
 from scipy.spatial import Delaunay,distance
+from collections import defaultdict
 
+
+def btime(a=[time()],t=''):
+  if t:
+    print '{:s}\t{:10.8f}'.format(t,time()-a[0])
+  a[0] = time()
 
 def timeit(method):
   def timed(*args, **kw):
@@ -72,7 +78,7 @@ def main():
   ## radius of circle with source nodes
   RAD    = 0.4
   ## number of grains used to sand paint each vein node
-  GRAINS = 2
+  GRAINS = 1
   ## alpha channel when rendering
   ALPHA  = 1.
   ## because five is right out
@@ -147,15 +153,14 @@ def main():
     W[W<2.*STP] = 2.*STP
 
     ## show vein nodes
-    for i in reversed(range(rootNodes-1,oo)):
-      dx = XY[P[i],0]-XY[i,0]
-      dy = XY[P[i],1]-XY[i,1]
-      a  = arctan2(dy,dx)
-      s  = linspace(0,1,GRAINS)*veinNodeRad
-      xp = XY[P[i],0] - cos(a)*s
-      yp = XY[P[i],1] - sin(a)*s
+    for i in reversed(range(rootNodes,oo)):
+      dxy = XY[P[i],:]-XY[i,:]
+      a   = arctan2(dxy[1],dxy[0])
+      s   = linspace(0,1,GRAINS)*veinNodeRad
+      xyp = XY[P[i],:] - array( cos(a),sin(a) )*s
+      #print oo,i,xyp, P[i], I[i]
 
-      vcirc(xp,yp,[W[i]/2.]*GRAINS)
+      vcirc(xyp[0],xyp[1],[W[i]/2.]*GRAINS)
 
 
   def tesselation(tri,X,Y):
@@ -219,14 +224,18 @@ def main():
       row.extend(i)
       col.extend(j)
 
+    SVdict = {}
+
     getSimplex = ltri.find_simplex
 
     for j in xrange(snum):
+      btime()
       simplex    = getSimplex(lsXY[j,:])
       nsimplices = positive( ltri.neighbors[simplex].flatten() )
       vertices   = positive( ltri.simplices[nsimplices,:].flatten() )
       ii         = unique(positive(vertices-FOUR)) # 4 initial nodes in tri
       iin        = ii.shape[0]
+      btime(t='simplex')
 
       if iin:
 
@@ -242,11 +251,16 @@ def main():
 
         if maskn > 0:
           listext( list(ii[mask]),[j]*maskn )
-    
+          SVdict[j]=ii[mask]
+
+      btime(t='adsf')
+
       nodemap = coo_matrix( ( [True]*len(col),(row,col) ),\
                   shape=(oo,snum),dtype=bool ).tocsr()
 
-    return nodemap
+      btime(t='coo')
+
+    return nodemap,SVdict
 
   ### INITIALIZE
 
@@ -254,6 +268,7 @@ def main():
 
   XY      = zeros((vmax,2),dtype=ft)
   P       = zeros(vmax,dtype=bigint)-1
+  I       = zeros(vmax,dtype=bigint)-1
   W       = zeros(vmax,dtype=float)
   sXY     = darts(C,C,RAD,smax)
   snum    = sXY.shape[0]
@@ -275,11 +290,12 @@ def main():
   for i in xrange(rootNodes):
     t = random()*2.*pi
     s = .1 + random()*0.7
-    #xy = C  + array( [cos(t),sin(y)] )*RAD*s
-    xy = array([C,C])
+    xy = C  + array( [cos(t),sin(t)] )*RAD*s
+    #xy = array([C,C])
 
     xyinit[i+FOUR,:] = xy
     XY[i,:]          = xy
+
 
   tri    = triag(xyinit,incremental=True)
   triadd = tri.add_points
@@ -294,12 +310,10 @@ def main():
       itt += 1
 
       ## distance: vein nodes -> source nodes
-      del(distVS)
       distVS = cdist(XY[:oo,:],sXY,'euclidean')
       
       ## this is where the magic might happen
-      del(nodemap)
-      nodemap = makeNodemap(snum,distVS,tri,XY,sXY)
+      nodemap,SVdict = makeNodemap(snum,distVS,tri,XY,sXY)
 
       ## grow new vein nodes
       cont = False
@@ -312,6 +326,7 @@ def main():
           a        = arctan2( txy[1],txy[0] )
           XY[oo,:] = XY[i,:] - array( [cos(a),sin(a)] )*veinNodeRad
           P[oo]    = i
+          I[oo] = itt # REMOVE TODO
           oo      += 1
         
       ## add new points to triangulation
