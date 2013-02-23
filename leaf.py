@@ -52,6 +52,8 @@ def main():
   square    = np.square
   linspace  = np.linspace
   cdist     = distance.cdist
+  eye       = np.eye
+  transpose = np.transpose
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
@@ -87,9 +89,9 @@ def main():
   ## maximum number of vein nodes
   vmax        = 1*1e7
   ## maximum number of source nodes
-  smax        = 200
+  smax        = 100
   ## widht of widest vein node when rendered
-  rootW       = 40.*STP
+  rootW       = 10.*STP
   ## number of root (vein) nodes
   rootNodes   = 1
 
@@ -231,18 +233,18 @@ def main():
         ## distance: vein nodes -> vein nodes
         idistVV = cdist(lXY[ii,:],lXY[ii,:],'euclidean')
         
-        idistVS = tile( ldistVS[ii,j],(iin,1) ).T
+        idistVS = transpose(tile( ldistVS[ii,j],(iin,1) ))
         mas     = maximum( idistVV,ldistVS[ii,j] )
-        compare = idistVS < mas
+        compare = ( idistVS<mas ) == ( 1-eye(iin,dtype=bool) )
         count   = compare.sum(axis=1)
-        mask    = count==(iin-1)
+        mask    = count==iin
         maskn   = mask.sum() 
 
         if maskn > 0:
           listext( list(ii[mask]),[j]*maskn )
     
-    nodemap = coo_matrix( ( [True]*len(col),(row,col) ),\
-                shape=(oo,snum),dtype=bool ).tocsr()
+      nodemap = coo_matrix( ( [True]*len(col),(row,col) ),\
+                  shape=(oo,snum),dtype=bool ).tocsr()
 
     return nodemap
 
@@ -301,10 +303,10 @@ def main():
 
       ## grow new vein nodes
       cont = False
-      ooo = oo
+      ooo  = oo
       for i in xrange(oo):
         mask = nodemap[i,:].nonzero()[1]
-        if mask.any():
+        if mask.shape[0]>0:
           cont     = True
           txy      = ( XY[i,:] -sXY[mask,:] ).sum(axis=0)
           a        = arctan2( txy[1],txy[0] )
@@ -315,20 +317,20 @@ def main():
       ## add new points to triangulation
       triadd(XY[ooo:oo,:])
 
-      ## terminate if nothing happened.
-      if not cont:
-        break
-
       ## mask out dead source nodes
       sourcemask = ones(snum,dtype=bool)
       for j in xrange(snum):
         vinds = nodemap[:,j].nonzero()[0]
-        if (distVS[vinds,j]<killzone).all():
+        if (distVS[vinds,j]<killzone).any():
+          
           sourcemask[j] = False
 
       ## remove dead soure nodes
       sXY  = sXY[sourcemask,:]
       snum = sXY.shape[0]
+
+      if snum<1:
+        break
 
       if not itt % 50:
         aggt += time()-iti
@@ -346,32 +348,20 @@ def main():
     #ctx.set_line_width(1./SIZE)
     #ctx.set_source_rgba(1.,0,0,0.7)
 
-    #tesselation(tri,X,Y)
-
     ## set color
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
     ## draws all vein nodes in
     draw(P,W,oo,XY)
 
+    # show source nodes
+    ctx.set_source_rgba(1,0,0,0.2)
+
     ## save to file
     sur.write_to_png('{:s}.veins.png'.format(OUT))
 
-    ## set line W if using lines
-
-    #ctx.set_source_rgb(BACK,BACK,BACK)
-    #ctx.rectangle(0,0,1,1)
-    #ctx.fill()
-
-    #sur.write_to_png('{:s}.tesselation.png'.format(OUT))
-    
     ## draw nodes as circles
     #vcirc(X[:oo],Y[:oo],[veinNodeRad/2.]*oo)
-
-    ## show source nodes
-    #ctx.set_source_rgb(1,0,0)
-    #vcirc(sX,sY,[sourceDist/2.]*len(sX))
-    #ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
   return
 
