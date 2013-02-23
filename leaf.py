@@ -6,7 +6,6 @@ import numpy as np
 import cairo
 from time import time as time
 import sys
-from scipy.sparse import coo_matrix
 from scipy.spatial import Delaunay,distance
 from collections import defaultdict
 
@@ -95,7 +94,7 @@ def main():
   ## maximum number of vein nodes
   vmax        = 1*1e7
   ## maximum number of source nodes
-  smax        = 100
+  smax        = 200
   ## widht of widest vein node when rendered
   rootW       = 10.*STP
   ## number of root (vein) nodes
@@ -225,6 +224,7 @@ def main():
       col.extend(j)
 
     SVdict = {}
+    VSdict = defaultdict(list)
 
     getSimplex = ltri.find_simplex
 
@@ -235,7 +235,6 @@ def main():
       vertices   = positive( ltri.simplices[nsimplices,:].flatten() )
       ii         = unique(positive(vertices-FOUR)) # 4 initial nodes in tri
       iin        = ii.shape[0]
-      btime(t='simplex')
 
       if iin:
 
@@ -250,17 +249,11 @@ def main():
         maskn   = mask.sum() 
 
         if maskn > 0:
-          listext( list(ii[mask]),[j]*maskn )
           SVdict[j]=ii[mask]
+          [VSdict[i].append(j) for i in ii[mask]]
 
-      btime(t='adsf')
 
-      nodemap = coo_matrix( ( [True]*len(col),(row,col) ),\
-                  shape=(oo,snum),dtype=bool ).tocsr()
-
-      btime(t='coo')
-
-    return nodemap,SVdict
+    return VSdict,SVdict
 
   ### INITIALIZE
 
@@ -313,20 +306,18 @@ def main():
       distVS = cdist(XY[:oo,:],sXY,'euclidean')
       
       ## this is where the magic might happen
-      nodemap,SVdict = makeNodemap(snum,distVS,tri,XY,sXY)
+      VSdict,SVdict = makeNodemap(snum,distVS,tri,XY,sXY)
 
       ## grow new vein nodes
       cont = False
       ooo  = oo
-      for i in xrange(oo):
-        mask = nodemap[i,:].nonzero()[1]
-        if mask.shape[0]>0:
+      for i,mask in VSdict.iteritems():
+        if mask:
           cont     = True
           txy      = ( XY[i,:] -sXY[mask,:] ).sum(axis=0)
           a        = arctan2( txy[1],txy[0] )
           XY[oo,:] = XY[i,:] - array( [cos(a),sin(a)] )*veinNodeRad
           P[oo]    = i
-          I[oo] = itt # REMOVE TODO
           oo      += 1
         
       ## add new points to triangulation
@@ -334,10 +325,8 @@ def main():
 
       ## mask out dead source nodes
       sourcemask = ones(snum,dtype=bool)
-      for j in xrange(snum):
-        vinds = nodemap[:,j].nonzero()[0]
-        if (distVS[vinds,j]<killzone).any():
-          
+      for j,ii in SVdict.iteritems():
+        if (distVS[ii,j]<killzone).all():
           sourcemask[j] = False
 
       ## remove dead soure nodes
