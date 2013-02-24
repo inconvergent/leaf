@@ -9,11 +9,8 @@ from time import strftime
 import sys
 from scipy.spatial import Delaunay,distance
 from collections import defaultdict
-
-def btime(a=[time()],t=''):
-  if t:
-    print '{:s}\t{:10.8f}'.format(t,time()-a[0])
-  a[0] = time()
+import cProfile
+import pstats
 
 def timeit(method):
   def timed(*args, **kw):
@@ -59,17 +56,18 @@ def main():
   cdist     = distance.cdist
   eye       = np.eye
   transpose = np.transpose
+  ceil      = np.ceil
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 1000
+  SIZE   = 512
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
   FRONT  = 0.
   ## filename of image
-  OUT    = './rework.1.img'
+  OUT    = './e.img'
   ## size of pixels on canvas
   STP    = 1./SIZE
   ## center of canvas
@@ -87,16 +85,17 @@ def main():
   
   ## minimum distance between source nodes
   sourceDist  = 10.*STP
-  ## vein nodes die when they get this close to a source node
+  ## a source node dies when all approaching vein nodes are close than
+  ## killzone.
   killzone    = STP
   ## radius of vein nodes when rendered
   veinNodeRad = STP
   ## maximum number of vein nodes
   vmax        = 1*1e7
   ## maximum number of source nodes
-  smax        = 10
+  smax        = 100
   ## widht of widest vein node when rendered
-  rootW       = 10.*STP
+  rootW       = 20.*STP
   ## number of root (vein) nodes
   rootNodes   = 1
 
@@ -157,19 +156,18 @@ def main():
       a   = arctan2(dxy[1],dxy[0])
       s   = linspace(0,1,GRAINS)*veinNodeRad
       xyp = XY[P[i],:] - array( cos(a),sin(a) )*s
-      #print oo,i,xyp, P[i], I[i]
 
       vcirc(xyp[0],xyp[1],[W[i]/2.]*GRAINS)
 
 
-  def tesselation(tri,X,Y):
+  def tesselation(tri):
     """
     show triangulation of all vein nodes
     """
 
     for s in tri.simplices:
       ## ignore the four "container vertices" in the corners
-      if np.all(s>FOUR-1):
+      if all(s>FOUR-1):
         xy = tri.points[s,:]
         ctx.move_to(xy[0,0],xy[0,1])
         for i in xrange(2):
@@ -199,11 +197,10 @@ def main():
     for i in xrange(n-1):
       dxy = gridxy[i,:] - gridxy[i+1:,:]
       dd  = sqrt(dxy[:,0]*dxy[:,0]+dxy[:,1]*dxy[:,1])
-      if (dd > sourceDist).all():
+      if all(dd > sourceDist):
         o.append(i)
 
-    o = array(o,dtype=bigint)
-    return gridxy[o,:]
+    return gridxy[array(o,dtype=bigint),:]
 
  
   def makeNodemap(snum,ldistVS,ltri,lXY,lsXY):
@@ -229,7 +226,6 @@ def main():
     getSimplex = ltri.find_simplex
 
     for j in xrange(snum):
-      btime()
       simplex    = getSimplex(lsXY[j,:])
       nsimplices = positive( ltri.neighbors[simplex].flatten() )
       vertices   = positive( ltri.simplices[nsimplices,:].flatten() )
@@ -260,8 +256,8 @@ def main():
   ## arrays
 
   XY      = zeros((vmax,2),dtype=ft)
+  TAG     = zeros(vmax,dtype=bigint)-1
   P       = zeros(vmax,dtype=bigint)-1
-  I       = zeros(vmax,dtype=bigint)-1
   W       = zeros(vmax,dtype=float)
   sXY     = darts(C,C,RAD,smax)
   snum    = sXY.shape[0]
@@ -300,7 +296,6 @@ def main():
   iti = time()
   try:
     while True:
-      itt += 1
 
       ## distance: vein nodes -> source nodes
       distVS = cdist(XY[:oo,:],sXY,'euclidean')
@@ -311,29 +306,35 @@ def main():
       ## grow new vein nodes
       cont = False
       ooo  = oo
-      for i,mask in VSdict.iteritems():
-        if mask:
+      for i,jj in VSdict.iteritems():
+        killmask = distVS[i,jj]<=killzone
+        if jj and not any(killmask):
           cont     = True
-          txy      = ( XY[i,:] -sXY[mask,:] ).sum(axis=0)
+          txy      = ( XY[i,:] -sXY[jj,:] ).sum(axis=0)
           a        = arctan2( txy[1],txy[0] )
           XY[oo,:] = XY[i,:] - array( [cos(a),sin(a)] )*veinNodeRad
           P[oo]    = i
           oo      += 1
         
-      ## add new points to triangulation
-      triadd(XY[ooo:oo,:])
-
       ## mask out dead source nodes
       sourcemask = ones(snum,dtype=bool)
       for j,ii in SVdict.iteritems():
-        if (distVS[ii,j]<killzone).all():
+        if all(distVS[ii,j]<=killzone):
           sourcemask[j] = False
+          mergenum = ii.shape[0]
+          XY[oo:oo+mergenum,:] = sXY[j,:]
+          P[oo:oo+mergenum] = ii
+          oo += mergenum
+
+      ## add new points to triangulation
+      triadd(XY[ooo:oo,:])
+
 
       ## remove dead soure nodes
       sXY  = sXY[sourcemask,:]
       snum = sXY.shape[0]
 
-      if snum<1:
+      if snum<ceil(smax*0.025):
         break
 
       if not itt % 50:
@@ -345,13 +346,12 @@ def main():
         sys.stdout.flush()
         iti = time()
 
+      itt += 1
+
   except KeyboardInterrupt:
     pass
 
   finally:
-
-    #ctx.set_line_width(1./SIZE)
-    #ctx.set_source_rgba(1.,0,0,0.7)
 
     ## set color
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
@@ -359,16 +359,20 @@ def main():
     ## draws all vein nodes in
     draw(P,W,oo,XY)
 
-    # show source nodes
-    ctx.set_source_rgba(1,0,0,0.2)
-
     ## save to file
     sur.write_to_png('{:s}.veins.png'.format(OUT))
-
-    ## draw nodes as circles
-    #vcirc(X[:oo],Y[:oo],[veinNodeRad/2.]*oo)
 
   return
 
 
-if __name__ == '__main__' : main()
+if __name__ == '__main__' :
+  OUT = 'profile'
+  ## profile code
+  pfilename = '{:s}.txt'.format(OUT)
+  cProfile.run('main()',pfilename)
+  p = pstats.Stats(pfilename)
+  p.strip_dirs().sort_stats('cumulative').print_stats()
+
+  ## run code regularly
+  #main()
+
