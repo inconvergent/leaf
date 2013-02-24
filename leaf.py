@@ -44,6 +44,7 @@ def main():
   tile      = np.tile
   maximum   = np.maximum
   colstack  = np.column_stack
+  rowstack  = np.row_stack
   triag     = Delaunay
   unique    = np.unique
   positive  = lambda a: a[a>-1]
@@ -59,13 +60,13 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 1000
+  SIZE   = 512
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
   FRONT  = 0.
   ## filename of image
-  OUT    = './e.test.img'
+  OUT    = './darts.test.img'
   ## size of pixels on canvas
   STP    = 1./SIZE
   ## center of canvas
@@ -94,7 +95,7 @@ def main():
   ## maximum number of source nodes
   smax        = 150
   ## width of widest vein nodes when rendered
-  rootW       = 20.*STP
+  rootW       = 0.015*SIZE*STP
   ## width of smallest vein nodes when rendered
   leafW       = 1.1*STP
   ## number of root (vein) nodes
@@ -140,7 +141,7 @@ def main():
     draws the veins
     """
 
-    ## simple vein W
+    ## simple vein width calculation
     for i in reversed(xrange(rootNodes,oo)):
       ii = P[i]
       while ii>1:
@@ -175,12 +176,11 @@ def main():
           ctx.line_to(xy[i,0],xy[i,1])
         ctx.stroke()
 
+  def randomPointsInCircle(n,xx=C,yy=C,rr=RAD):
+    """
+    get n random points in a circle.
+    """
 
-  def darts(xx,yy,rr,n):
-    """
-    get at most n random, uniformly distributed, points in a circle.
-    centered at (xx,yy), with radius rr.
-    """
     ## random uniform points in a circle
     t        = 2.*pi*random(n)
     u        = random(n)+random(n)
@@ -190,24 +190,79 @@ def main():
     r[mask]  = 2.-u[mask]
     r[xmask] = u[xmask]
     xyp      = colstack(( rr*r*cos(t),rr*r*sin(t) ))
-    gridxy   = xyp + array( [xx,yy] )
+    dartsxy  = xyp + array( [xx,yy] )
 
-    ii = []
-    ## we only want points that have no neghbors 
-    ## within radius sourceDist
-    for i in xrange(n-1):
-      dxy = gridxy[i,:] - gridxy[i+1:,:]
-      dd  = sqrt(dxy[:,0]*dxy[:,0]+dxy[:,1]*dxy[:,1])
-      if all(dd > sourceDist):
-        ii.append(i)
+    return dartsxy
 
-    return gridxy[array(ii,dtype=bigint),:]
 
- 
+  def darts(n):
+    """
+    get at most n random, uniformly distributed, points in a circle.
+    centered at (xx,yy), with radius rr. points are no closer to each other
+    than sourceDist.
+    """
+    
+    dartsxy = randomPointsInCircle(n)
+
+    jj = []
+
+    ## remove new nodes that are too close to other 
+    ## new nodes
+    dists = cdist(dartsxy,dartsxy,'euclidean')
+    for j in xrange(n-1):
+      if all( dists[j,j+1:] > sourceDist ):
+        jj.append(j)
+
+    res = dartsxy[array(jj,dtype=bigint),:]
+    lenres = res.shape[0]
+    print lenres
+
+    return res,lenres
+
+
+  def throwMoreDarts(XY,sXY,tri,oo,n):
+    """
+    does the same as darts, but adds to existing points, making sure that
+    distances from new nodes to source and vein nodes is greater than
+    sourceDist.
+    """
+
+    dartsxy = randomPointsInCircle(n)
+
+    jj = []
+
+    dartsV = cdist(dartsxy,  XY[:oo,:],'euclidean')
+    dartsS = cdist(dartsxy, sXY       ,'euclidean')
+
+    ## remove new nodes that are too close to other 
+    ## new nodes or existing nodes
+    for j in xrange(n-1):
+      ## consider using triangulation.
+      #simplex    = getSimplex( lsXY[j,:] )
+      #nsimplices = positive( ltri.neighbors[simplex] )
+      #vertices   = positive( ltri.simplices[nsimplices,:]-FOUR )
+      #ii         = unique(vertices)
+      #iin        = ii.shape[0]
+
+      if all(dartsV[j,:]>sourceDist) and\
+         all(dartsS[j,:]>sourceDist):
+        jj.append(j)
+    
+    res = rowstack(( sXY,dartsxy[array(jj,dtype=bigint)] ))
+    lenres = res.shape[0]
+
+    return res,lenres
+
+
   def makeNodemap(snum,ldistVS,ltri,lXY,lsXY):
     """
-    nodemap[i,j] == True if vein node i is relative neighbor of 
-    source node j
+
+    map and inverse map of relative neighboring vein nodes of all source nodes
+    
+    - SVdict[source node indices] = list with indices of neighboring vein nodes
+    - VSdict[vein node indices] = list with indices of source nodes that have
+        this vein as a neighbor
+
     u_i is relative neighbor of s if for all u_i:
       ||v-s|| < max{ ||u_i-s||, ||v-u_i|| }
 
@@ -249,22 +304,20 @@ def main():
           SVdict[j]=ii[mask]
           [VSdict[i].append(j) for i in ii[mask]]
 
-
     return VSdict,SVdict
 
   ### INITIALIZE
 
   ## arrays
 
-  XY      = zeros((vmax,2),dtype=ft)
-  TAG     = zeros(vmax,dtype=bigint)-1
-  P       = zeros(vmax,dtype=bigint)-1
-  W       = zeros(vmax,dtype=float)
-  sXY     = darts(C,C,RAD,smax)
-  snum    = sXY.shape[0]
+  XY       = zeros((vmax,2),dtype=ft)
+  TAG      = zeros(vmax,dtype=bigint)-1
+  P        = zeros(vmax,dtype=bigint)-1
+  W        = zeros(vmax,dtype=float)
+  sXY,snum = darts(10)
 
-  distVS  = None
-  nodemap = None
+  distVS   = None
+  nodemap  = None
 
   ## (START) VEIN NODES
 
@@ -277,17 +330,16 @@ def main():
   xyinit          = zeros( (rootNodes+FOUR,2) )
   xyinit[:FOUR,:] = array( [[0.,0.],[1.,0.],[1.,1.],[0.,1.]] )
 
+
   for i in xrange(rootNodes):
     t = random()*2.*pi
-    #s = .1 + random()*0.7
     xy = C  + array( [cos(t),sin(t)] )*RAD
-
     xyinit[i+FOUR,:] = xy
     XY[i,:]          = xy
 
-
   tri    = triag(xyinit,incremental=True)
   triadd = tri.add_points
+
 
   ### MAIN LOOP
 
@@ -335,7 +387,9 @@ def main():
       sXY  = sXY[sourcemask,:]
       snum = sXY.shape[0]
 
-      if snum<ceil(smax*0.025) or len(distVS)<3:
+      sXY,snum = throwMoreDarts(XY,sXY,tri,oo,3)
+
+      if snum<3:
         break
 
       if not itt % 50:
