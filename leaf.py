@@ -84,7 +84,7 @@ def main():
   ## minimum distance between source nodes
   sourceDist  = 10.*STP
   ## a source node dies when all approaching vein nodes are closer than this
-  ## only killzone == veinNode == STP will cause consistently visible merging
+  ## only killzone == veinNode < leafW will cause consistently visible merging
   ## of branches in rendering.
   killzone    = STP
   ## radius of vein nodes when rendered
@@ -92,11 +92,11 @@ def main():
   ## maximum number of vein nodes
   vmax        = 1*1e7
   ## maximum number of source nodes
-  smax        = 200
+  smax        = 150
   ## width of widest vein nodes when rendered
   rootW       = 20.*STP
   ## width of smallest vein nodes when rendered
-  leafW       = 1.9*STP
+  leafW       = 1.1*STP
   ## number of root (vein) nodes
   rootNodes   = 3
 
@@ -192,16 +192,16 @@ def main():
     xyp      = colstack(( rr*r*cos(t),rr*r*sin(t) ))
     gridxy   = xyp + array( [xx,yy] )
 
-    o = []
+    ii = []
     ## we only want points that have no neghbors 
     ## within radius sourceDist
     for i in xrange(n-1):
       dxy = gridxy[i,:] - gridxy[i+1:,:]
       dd  = sqrt(dxy[:,0]*dxy[:,0]+dxy[:,1]*dxy[:,1])
       if all(dd > sourceDist):
-        o.append(i)
+        ii.append(i)
 
-    return gridxy[array(o,dtype=bigint),:]
+    return gridxy[array(ii,dtype=bigint),:]
 
  
   def makeNodemap(snum,ldistVS,ltri,lXY,lsXY):
@@ -227,10 +227,10 @@ def main():
     getSimplex = ltri.find_simplex
 
     for j in xrange(snum):
-      simplex    = getSimplex(lsXY[j,:])
+      simplex    = getSimplex( lsXY[j,:] )
       nsimplices = positive( ltri.neighbors[simplex] )
-      vertices   = positive( ltri.simplices[nsimplices,:] )
-      ii         = unique(positive(vertices-FOUR)) # 4 initial nodes in tri
+      vertices   = positive( ltri.simplices[nsimplices,:]-FOUR )
+      ii         = unique(vertices)
       iin        = ii.shape[0]
 
       if iin:
