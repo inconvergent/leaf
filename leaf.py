@@ -9,8 +9,6 @@ from time import strftime
 import sys
 from scipy.spatial import Delaunay,distance
 from collections import defaultdict
-import cProfile
-import pstats
 
 def timeit(method):
   def timed(*args, **kw):
@@ -61,13 +59,13 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 512
+  SIZE   = 1000
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
   FRONT  = 0.
   ## filename of image
-  OUT    = './e.img'
+  OUT    = './e.test.img'
   ## size of pixels on canvas
   STP    = 1./SIZE
   ## center of canvas
@@ -85,19 +83,22 @@ def main():
   
   ## minimum distance between source nodes
   sourceDist  = 10.*STP
-  ## a source node dies when all approaching vein nodes are close than
-  ## killzone.
+  ## a source node dies when all approaching vein nodes are closer than this
+  ## only killzone == veinNode == STP will cause consistently visible merging
+  ## of branches in rendering.
   killzone    = STP
   ## radius of vein nodes when rendered
-  veinNodeRad = STP
+  veinNode    = STP
   ## maximum number of vein nodes
   vmax        = 1*1e7
   ## maximum number of source nodes
-  smax        = 100
-  ## widht of widest vein node when rendered
+  smax        = 200
+  ## width of widest vein nodes when rendered
   rootW       = 20.*STP
+  ## width of smallest vein nodes when rendered
+  leafW       = 1.9*STP
   ## number of root (vein) nodes
-  rootNodes   = 1
+  rootNodes   = 3
 
 
   def ctxInit():
@@ -148,13 +149,13 @@ def main():
 
     wmax = W.max()
     W = sqrt(W/wmax)*rootW
-    W[W<2.*STP] = 2.*STP
+    W[W<leafW] = leafW
 
     ## show vein nodes
     for i in reversed(range(rootNodes,oo)):
       dxy = XY[P[i],:]-XY[i,:]
       a   = arctan2(dxy[1],dxy[0])
-      s   = linspace(0,1,GRAINS)*veinNodeRad
+      s   = linspace(0,1,GRAINS)*veinNode
       xyp = XY[P[i],:] - array( cos(a),sin(a) )*s
 
       vcirc(xyp[0],xyp[1],[W[i]/2.]*GRAINS)
@@ -227,8 +228,8 @@ def main():
 
     for j in xrange(snum):
       simplex    = getSimplex(lsXY[j,:])
-      nsimplices = positive( ltri.neighbors[simplex].flatten() )
-      vertices   = positive( ltri.simplices[nsimplices,:].flatten() )
+      nsimplices = positive( ltri.neighbors[simplex] )
+      vertices   = positive( ltri.simplices[nsimplices,:] )
       ii         = unique(positive(vertices-FOUR)) # 4 initial nodes in tri
       iin        = ii.shape[0]
 
@@ -239,10 +240,10 @@ def main():
         
         idistVS = transpose(tile( ldistVS[ii,j],(iin,1) ))
         mas     = maximum( idistVV,ldistVS[ii,j] )
-        compare = ( idistVS<mas ) == ( 1-eye(iin,dtype=bool) )
+        compare = idistVS<mas
         count   = compare.sum(axis=1)
-        mask    = count==iin
-        maskn   = mask.sum() 
+        mask    = count==iin-1
+        maskn   = mask.sum()
 
         if maskn > 0:
           SVdict[j]=ii[mask]
@@ -278,9 +279,8 @@ def main():
 
   for i in xrange(rootNodes):
     t = random()*2.*pi
-    s = .1 + random()*0.7
-    xy = C  + array( [cos(t),sin(t)] )*RAD*s
-    #xy = array([C,C])
+    #s = .1 + random()*0.7
+    xy = C  + array( [cos(t),sin(t)] )*RAD
 
     xyinit[i+FOUR,:] = xy
     XY[i,:]          = xy
@@ -312,7 +312,7 @@ def main():
           cont     = True
           txy      = ( XY[i,:] -sXY[jj,:] ).sum(axis=0)
           a        = arctan2( txy[1],txy[0] )
-          XY[oo,:] = XY[i,:] - array( [cos(a),sin(a)] )*veinNodeRad
+          XY[oo,:] = XY[i,:] - array( [cos(a),sin(a)] )*veinNode
           P[oo]    = i
           oo      += 1
         
@@ -322,24 +322,25 @@ def main():
         if all(distVS[ii,j]<=killzone):
           sourcemask[j] = False
           mergenum = ii.shape[0]
-          XY[oo:oo+mergenum,:] = sXY[j,:]
+          txy      = XY[ii,:]-sXY[j,:]
+          a        = arctan2( txy[:,1],txy[:,0] )
+          XY[oo:oo+mergenum,:] = XY[ii,:] + colstack(( cos(a),sin(a) ))*veinNode
           P[oo:oo+mergenum] = ii
           oo += mergenum
 
       ## add new points to triangulation
       triadd(XY[ooo:oo,:])
 
-
       ## remove dead soure nodes
       sXY  = sXY[sourcemask,:]
       snum = sXY.shape[0]
 
-      if snum<ceil(smax*0.025):
+      if snum<ceil(smax*0.025) or len(distVS)<3:
         break
 
       if not itt % 50:
         aggt += time()-iti
-        print("""{} | #i: {:6d} | #s: {:7.2f} | """\
+        print("""{} | #i: {:6d} | #s: {:9.2f} | """\
               """#vn: {:6d} | #sn: {:6d}"""\
               .format(strftime("%Y-%m-%d %H:%M:%S"),\
                                itt,aggt,oo,snum))
@@ -357,6 +358,8 @@ def main():
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
     ## draws all vein nodes in
+    
+    print('\ndrawing ...\n')
     draw(P,W,oo,XY)
 
     ## save to file
@@ -366,13 +369,15 @@ def main():
 
 
 if __name__ == '__main__' :
-  OUT = 'profile'
-  ## profile code
-  pfilename = '{:s}.txt'.format(OUT)
-  cProfile.run('main()',pfilename)
-  p = pstats.Stats(pfilename)
-  p.strip_dirs().sort_stats('cumulative').print_stats()
+  import pstats
+  import cProfile
 
-  ## run code regularly
-  #main()
+  ## profile code
+  #OUT = 'profile'
+  #pfilename = '{:s}.profile'.format(OUT)
+  #cProfile.run('main()',pfilename)
+  #p = pstats.Stats(pfilename)
+  #p.strip_dirs().sort_stats('cumulative').print_stats()
+
+  main()
 
