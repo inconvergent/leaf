@@ -45,6 +45,8 @@ def main():
   maximum   = np.maximum
   colstack  = np.column_stack
   rowstack  = np.row_stack
+  hstack    = np.hstack
+  vstack    = np.vstack
   triag     = Delaunay
   unique    = np.unique
   positive  = lambda a: a[a>-1]
@@ -60,7 +62,7 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 512
+  SIZE   = 1000
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
@@ -78,28 +80,30 @@ def main():
   ## alpha channel when rendering
   ALPHA  = 1.
   ## because five is right out
-  FOUR = 4
+  FOUR   = 4
 
   ## GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
   
   ## minimum distance between source nodes
   sourceDist  = 10.*STP
   ## a source node dies when all approaching vein nodes are closer than this
-  ## only killzone == veinNode < leafW will cause consistently visible merging
+  ## only killzone == veinNode == STP will cause consistently visible merging
   ## of branches in rendering.
   killzone    = STP
   ## radius of vein nodes when rendered
   veinNode    = STP
   ## maximum number of vein nodes
   vmax        = 1*1e7
-  ## maximum number of source nodes
-  smax        = 150
+  # number of inital source nodes
+  sinit       = 10
+  # number of source nodes to attempt to add in each iteration
+  sadd        = 2
   ## width of widest vein nodes when rendered
   rootW       = 0.015*SIZE*STP
   ## width of smallest vein nodes when rendered
-  leafW       = 1.1*STP
+  leafW       = 2.*STP
   ## number of root (vein) nodes
-  rootNodes   = 3
+  rootNodes   = 1
 
 
   def ctxInit():
@@ -220,7 +224,7 @@ def main():
     return res,lenres
 
 
-  def throwMoreDarts(XY,sXY,tri,oo,n):
+  def throwMoreDarts(XY,sXY,oo,n):
     """
     does the same as darts, but adds to existing points, making sure that
     distances from new nodes to source and vein nodes is greater than
@@ -237,12 +241,6 @@ def main():
     ## remove new nodes that are too close to other 
     ## new nodes or existing nodes
     for j in xrange(n-1):
-      ## consider using triangulation.
-      #simplex    = getSimplex( lsXY[j,:] )
-      #nsimplices = positive( ltri.neighbors[simplex] )
-      #vertices   = positive( ltri.simplices[nsimplices,:]-FOUR )
-      #ii         = unique(vertices)
-      #iin        = ii.shape[0]
 
       if all(dartsV[j,:]>sourceDist) and\
          all(dartsS[j,:]>sourceDist):
@@ -294,7 +292,10 @@ def main():
         idistVV = cdist(lXY[ii,:],lXY[ii,:],'euclidean')
         
         idistVS = transpose(tile( ldistVS[ii,j],(iin,1) ))
-        mas     = maximum( idistVV,ldistVS[ii,j] )
+        #print idistVS.shape
+        #print tile(ldistVS[ii,j],(iin,1)).shape
+        #print
+        mas     = maximum( idistVV,tile(ldistVS[ii,j],(iin,1)) )
         compare = idistVS<mas
         count   = compare.sum(axis=1)
         mask    = count==iin-1
@@ -314,7 +315,7 @@ def main():
   TAG      = zeros(vmax,dtype=bigint)-1
   P        = zeros(vmax,dtype=bigint)-1
   W        = zeros(vmax,dtype=float)
-  sXY,snum = darts(10)
+  sXY,snum = darts(sinit)
 
   distVS   = None
   nodemap  = None
@@ -327,19 +328,19 @@ def main():
   ## remember that ndoes in tri will be four indices higher than in X,Y
 
   oo = rootNodes
-  xyinit          = zeros( (rootNodes+FOUR,2) )
+  xyinit          = zeros( (FOUR,2) )
   xyinit[:FOUR,:] = array( [[0.,0.],[1.,0.],[1.,1.],[0.,1.]] )
 
 
   for i in xrange(rootNodes):
     t = random()*2.*pi
     xy = C  + array( [cos(t),sin(t)] )*RAD
-    xyinit[i+FOUR,:] = xy
     XY[i,:]          = xy
 
-  tri    = triag(xyinit,incremental=True)
+  tri = triag( vstack(( xyinit,XY[:oo,:]  )),
+               incremental=True,
+               qhull_options='QJ')
   triadd = tri.add_points
-
 
   ### MAIN LOOP
 
@@ -387,7 +388,7 @@ def main():
       sXY  = sXY[sourcemask,:]
       snum = sXY.shape[0]
 
-      sXY,snum = throwMoreDarts(XY,sXY,tri,oo,3)
+      sXY,snum = throwMoreDarts(XY,sXY,oo,sadd)
 
       if snum<3:
         break
