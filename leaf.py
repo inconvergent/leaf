@@ -2,6 +2,10 @@
 # -*- coding: utf-8 -*-
 
 
+## when simulation is running you can abort by pressing C^c. The current
+## geometry will then be drawn. Press C^c again to exit right away.
+
+
 import numpy as np
 import cairo
 from time import time as time
@@ -15,7 +19,7 @@ def timeit(method):
     ts = time()
     result = method(*args, **kw)
     te = time()
-    print '\n{:s} took {:2.2f} sec\n'\
+    print '{:s} took {:8.4f} sec'\
             .format(method.__name__,te-ts)
     return result
   return timed
@@ -58,6 +62,11 @@ def main():
   eye       = np.eye
   transpose = np.transpose
   ceil      = np.ceil
+  reshape   = np.reshape
+  npsum     = np.sum
+  npall     = np.all
+  where     = np.where
+
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
@@ -140,13 +149,13 @@ def main():
   vcirc = vectorize(circ)
 
 
-  def draw(P,W,oo,XY):
+  def draw(P,W,o,XY):
     """
     draws the veins
     """
 
     ## simple vein width calculation
-    for i in reversed(xrange(rootNodes,oo)):
+    for i in reversed(xrange(rootNodes,o)):
       ii = P[i]
       while ii>1:
         W[ii]+=1.
@@ -157,7 +166,7 @@ def main():
     W[W<leafW] = leafW
 
     ## show vein nodes
-    for i in reversed(range(rootNodes,oo)):
+    for i in reversed(range(rootNodes,o)):
       dxy = XY[P[i],:]-XY[i,:]
       a   = arctan2(dxy[1],dxy[0])
       s   = linspace(0,1,GRAINS)*veinNode
@@ -219,12 +228,11 @@ def main():
 
     res = dartsxy[array(jj,dtype=bigint),:]
     lenres = res.shape[0]
-    print lenres
 
     return res,lenres
 
 
-  def throwMoreDarts(XY,sXY,oo,n):
+  def throwMoreDarts(XY,sXY,o,n):
     """
     does the same as darts, but adds to existing points, making sure that
     distances from new nodes to source and vein nodes is greater than
@@ -235,7 +243,7 @@ def main():
 
     jj = []
 
-    dartsV = cdist(dartsxy,  XY[:oo,:],'euclidean')
+    dartsV = cdist(dartsxy,  XY[:o,:],'euclidean')
     dartsS = cdist(dartsxy, sXY       ,'euclidean')
 
     ## remove new nodes that are too close to other 
@@ -251,7 +259,8 @@ def main():
 
     return res,lenres
 
-
+  
+  #@timeit
   def makeNodemap(snum,ldistVS,ltri,lXY,lsXY):
     """
 
@@ -262,12 +271,12 @@ def main():
         this vein as a neighbor
 
     u_i is relative neighbor of s if for all u_i:
-      ||v-s|| < max{ ||u_i-s||, ||v-u_i|| }
+      ||v-s|| < max{ ||u_i-s||, ||u_i-v|| }
 
       we save time by only checking the vein nodes that belong to the
       surounding simplices.
     """
-
+    
     row = []
     col = []
     def listext(i,j):
@@ -277,33 +286,27 @@ def main():
     SVdict = {}
     VSdict = defaultdict(list)
 
-    getSimplex = ltri.find_simplex
+    neighbors = ltri.neighbors
+    simplices = ltri.simplices
+    simplexj  = ltri.find_simplex(lsXY)
+    
+    for j,simplex in enumerate(simplexj):
+      nsimplices = positive( neighbors[simplex] )
+      vertices   = positive( simplices[nsimplices,:]-FOUR )
 
-    for j in xrange(snum):
-      simplex    = getSimplex( lsXY[j,:] )
-      nsimplices = positive( ltri.neighbors[simplex] )
-      vertices   = positive( ltri.simplices[nsimplices,:]-FOUR )
       ii         = unique(vertices)
       iin        = ii.shape[0]
+      
+      ##      = max { ||u_i-s||, ||u_i-v|| }
+      mas     = maximum(  cdist( lXY[ii,:],lXY[ii,:],'euclidean'),
+                          ldistVS[ii,j] )
+      ##        ||v-s|| < mas
+      compare = ldistVS[ii,j][:,None] < mas
+      mask    = npsum(compare,axis=1) == iin-1
+      maskn   = npsum(mask)
 
-      if iin:
-
-        ## distance: vein nodes -> vein nodes
-        idistVV = cdist(lXY[ii,:],lXY[ii,:],'euclidean')
-        
-        idistVS = transpose(tile( ldistVS[ii,j],(iin,1) ))
-        #print idistVS.shape
-        #print tile(ldistVS[ii,j],(iin,1)).shape
-        #print
-        mas     = maximum( idistVV,tile(ldistVS[ii,j],(iin,1)) )
-        compare = idistVS<mas
-        count   = compare.sum(axis=1)
-        mask    = count==iin-1
-        maskn   = mask.sum()
-
-        if maskn > 0:
-          SVdict[j]=ii[mask]
-          [VSdict[i].append(j) for i in ii[mask]]
+      SVdict[j]=ii[mask]
+      [VSdict[i].append(j) for i in ii[mask]]
 
     return VSdict,SVdict
 
@@ -312,7 +315,6 @@ def main():
   ## arrays
 
   XY       = zeros((vmax,2),dtype=ft)
-  TAG      = zeros(vmax,dtype=bigint)-1
   P        = zeros(vmax,dtype=bigint)-1
   W        = zeros(vmax,dtype=float)
   sXY,snum = darts(sinit)
@@ -327,7 +329,7 @@ def main():
   ## to contain all source nodes
   ## remember that ndoes in tri will be four indices higher than in X,Y
 
-  oo = rootNodes
+  o = rootNodes
   xyinit          = zeros( (FOUR,2) )
   xyinit[:FOUR,:] = array( [[0.,0.],[1.,0.],[1.,1.],[0.,1.]] )
 
@@ -337,7 +339,7 @@ def main():
     xy = C  + array( [cos(t),sin(t)] )*RAD
     XY[i,:]          = xy
 
-  tri = triag( vstack(( xyinit,XY[:oo,:]  )),
+  tri = triag( vstack(( xyinit,XY[:o,:]  )),
                incremental=True,
                qhull_options='QJ')
   triadd = tri.add_points
@@ -351,45 +353,47 @@ def main():
     while True:
 
       ## distance: vein nodes -> source nodes
-      distVS = cdist(XY[:oo,:],sXY,'euclidean')
+      distVS = cdist(XY[:o,:],sXY,'euclidean')
       
       ## this is where the magic might happen
       VSdict,SVdict = makeNodemap(snum,distVS,tri,XY,sXY)
 
       ## grow new vein nodes
       cont = False
-      ooo  = oo
+      oo  = o
       for i,jj in VSdict.iteritems():
         killmask = distVS[i,jj]<=killzone
         if jj and not any(killmask):
           cont     = True
-          txy      = ( XY[i,:] -sXY[jj,:] ).sum(axis=0)
+          txy      = npsum( XY[i,:] -sXY[jj,:] ,axis=0)
           a        = arctan2( txy[1],txy[0] )
-          XY[oo,:] = XY[i,:] - array( [cos(a),sin(a)] )*veinNode
-          P[oo]    = i
-          oo      += 1
+          XY[o,:] = XY[i,:] - array( [cos(a),sin(a)] )*veinNode
+          P[o]    = i
+          o      += 1
         
       ## mask out dead source nodes
-      sourcemask = ones(snum,dtype=bool)
+      mask = ones(snum,dtype=bool)
       for j,ii in SVdict.iteritems():
         if all(distVS[ii,j]<=killzone):
-          sourcemask[j] = False
-          mergenum = ii.shape[0]
+          mask[j]  = False
+          mn       = ii.shape[0]
           txy      = XY[ii,:]-sXY[j,:]
           a        = arctan2( txy[:,1],txy[:,0] )
-          XY[oo:oo+mergenum,:] = XY[ii,:] + colstack(( cos(a),sin(a) ))*veinNode
-          P[oo:oo+mergenum] = ii
-          oo += mergenum
+          xy       = XY[ii,:] + colstack(( cos(a),sin(a) ))*veinNode
+          XY[o:o+mn,:] = xy 
+          P[o:o+mn] = ii
+          o += mn
 
       ## add new points to triangulation
-      triadd(XY[ooo:oo,:])
+      triadd(XY[oo:o,:])
 
       ## remove dead soure nodes
-      sXY  = sXY[sourcemask,:]
+      sXY  = sXY[mask,:]
       snum = sXY.shape[0]
 
-      sXY,snum = throwMoreDarts(XY,sXY,oo,sadd)
+      sXY,snum = throwMoreDarts(XY,sXY,o,sadd)
 
+      #if snum<3 or itt > 299:
       if snum<3:
         break
 
@@ -398,7 +402,7 @@ def main():
         print("""{} | #i: {:6d} | #s: {:9.2f} | """\
               """#vn: {:6d} | #sn: {:6d}"""\
               .format(strftime("%Y-%m-%d %H:%M:%S"),\
-                               itt,aggt,oo,snum))
+                               itt,aggt,o,snum))
         sys.stdout.flush()
         iti = time()
 
@@ -415,7 +419,7 @@ def main():
     ## draws all vein nodes in
     
     print('\ndrawing ...\n')
-    draw(P,W,oo,XY)
+    draw(P,W,o,XY)
 
     ## save to file
     sur.write_to_png('{:s}.veins.png'.format(OUT))
@@ -424,15 +428,15 @@ def main():
 
 
 if __name__ == '__main__' :
-  import pstats
-  import cProfile
 
-  ## profile code
-  #OUT = 'profile'
-  #pfilename = '{:s}.profile'.format(OUT)
-  #cProfile.run('main()',pfilename)
-  #p = pstats.Stats(pfilename)
-  #p.strip_dirs().sort_stats('cumulative').print_stats()
-
-  main()
+  if False:
+    import pstats
+    import cProfile
+    OUT = 'profile'
+    pfilename = '{:s}.profile'.format(OUT)
+    cProfile.run('main()',pfilename)
+    p = pstats.Stats(pfilename)
+    p.strip_dirs().sort_stats('cumulative').print_stats()
+  else:
+    main()
 
