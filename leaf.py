@@ -65,7 +65,6 @@ def main():
   reshape   = np.reshape
   npsum     = np.sum
   npall     = np.all
-  where     = np.where
 
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
@@ -189,6 +188,7 @@ def main():
           ctx.line_to(xy[i,0],xy[i,1])
         ctx.stroke()
 
+
   def randomPointsInCircle(n,xx=C,yy=C,rr=RAD):
     """
     get n random points in a circle.
@@ -263,7 +263,6 @@ def main():
   #@timeit
   def makeNodemap(snum,ldistVS,ltri,lXY,lsXY):
     """
-
     map and inverse map of relative neighboring vein nodes of all source nodes
     
     - SVdict[source node indices] = list with indices of neighboring vein nodes
@@ -312,8 +311,6 @@ def main():
 
   ### INITIALIZE
 
-  ## arrays
-
   XY       = zeros((vmax,2),dtype=ft)
   P        = zeros(vmax,dtype=bigint)-1
   W        = zeros(vmax,dtype=float)
@@ -327,7 +324,7 @@ def main():
   ## triangulation needs at least four initial points
   ## in addition we need the initial triangulation 
   ## to contain all source nodes
-  ## remember that ndoes in tri will be four indices higher than in X,Y
+  ## remember that nodes in tri will be four indices higher than in X,Y
 
   o = rootNodes
   xyinit          = zeros( (FOUR,2) )
@@ -339,6 +336,9 @@ def main():
     xy = C  + array( [cos(t),sin(t)] )*RAD
     XY[i,:]          = xy
 
+  ## QJ makes all added points appear in the triangulation
+  ## if they are duplicates they are added by adding a random small number to
+  ## the node.
   tri = triag( vstack(( xyinit,XY[:o,:]  )),
                incremental=True,
                qhull_options='QJ')
@@ -359,30 +359,29 @@ def main():
       VSdict,SVdict = makeNodemap(snum,distVS,tri,XY,sXY)
 
       ## grow new vein nodes
-      cont = False
-      oo  = o
+      oo = o
       for i,jj in VSdict.iteritems():
-        killmask = distVS[i,jj]<=killzone
-        if jj and not any(killmask):
-          cont     = True
+        mask = distVS[i,jj]<=killzone
+        if jj and not any(mask):
           txy      = npsum( XY[i,:] -sXY[jj,:] ,axis=0)
           a        = arctan2( txy[1],txy[0] )
-          XY[o,:] = XY[i,:] - array( [cos(a),sin(a)] )*veinNode
-          P[o]    = i
-          o      += 1
+          xy       = array( [cos(a),sin(a)] )*veinNode
+          XY[o,:]  = XY[i,:] - xy 
+          P[o]     = i
+          o       += 1
         
       ## mask out dead source nodes
       mask = ones(snum,dtype=bool)
       for j,ii in SVdict.iteritems():
         if all(distVS[ii,j]<=killzone):
-          mask[j]  = False
-          mn       = ii.shape[0]
-          txy      = XY[ii,:]-sXY[j,:]
-          a        = arctan2( txy[:,1],txy[:,0] )
-          xy       = XY[ii,:] + colstack(( cos(a),sin(a) ))*veinNode
-          XY[o:o+mn,:] = xy 
-          P[o:o+mn] = ii
-          o += mn
+          mask[j]      = False
+          mn           = ii.shape[0]
+          txy          = XY[ii,:]-sXY[j,:]
+          a            = arctan2( txy[:,1],txy[:,0] )
+          xy           = colstack(( cos(a),sin(a) ))*veinNode
+          XY[o:o+mn,:] = XY[ii,:] + xy 
+          P[ o:o+mn  ] = ii
+          o           += mn
 
       ## add new points to triangulation
       triadd(XY[oo:o,:])
@@ -413,10 +412,7 @@ def main():
 
   finally:
 
-    ## set color
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
-
-    ## draws all vein nodes in
     
     print('\ndrawing ...\n')
     draw(P,W,o,XY)
