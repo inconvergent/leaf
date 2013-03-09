@@ -70,7 +70,7 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 1000
+  SIZE   = 2000
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
@@ -105,13 +105,16 @@ def main():
   # number of inital source nodes
   sinit       = 10
   # number of source nodes to attempt to add in each iteration
-  sadd        = 2
+  sadd        = 12
   ## width of widest vein nodes when rendered
   rootW       = 0.015*SIZE*STP
   ## width of smallest vein nodes when rendered
   leafW       = 2.*STP
-  ## number of root (vein) nodes
+  ## number of root (vein) nodes (DONT CHANGE)
   rootNodes   = 1
+
+  initR       = 10.*STP
+  ddR         = STP
 
 
   def ctxInit():
@@ -189,33 +192,25 @@ def main():
         ctx.stroke()
 
 
-  def randomPointsInCircle(n,xx=C,yy=C,rr=RAD):
-    """
-    get n random points in a circle.
-    """
+  def randomPointsOnCircle(n,xx,yy,rr):
 
-    ## random uniform points in a circle
-    t        = 2.*pi*random(n)
-    u        = random(n)+random(n)
-    r        = zeros(n,dtype=ft)
-    mask     = u>1.
-    xmask    = logicNot(mask)
-    r[mask]  = 2.-u[mask]
-    r[xmask] = u[xmask]
-    xyp      = colstack(( rr*r*cos(t),rr*r*sin(t) ))
-    dartsxy  = xyp + array( [xx,yy] )
+    t       = random(n)*2.*pi
+    x       = cos(t)
+    y       = sin(t)
+    xyp     = colstack(( cos(t),sin(t) ))
+    dartsxy = rr*xyp + array( [xx,yy] )
 
     return dartsxy
 
 
-  def darts(n):
+  def darts(n,xx,yy,rr):
     """
-    get at most n random, uniformly distributed, points in a circle.
+    get at most n random, uniformly distributed, points on a circle.
     centered at (xx,yy), with radius rr. points are no closer to each other
     than sourceDist.
     """
     
-    dartsxy = randomPointsInCircle(n)
+    dartsxy = randomPointsOnCircle(n,xx=xx,yy=yy,rr=rr)
 
     jj = []
 
@@ -232,14 +227,14 @@ def main():
     return res,lenres
 
 
-  def throwMoreDarts(XY,sXY,o,n):
+  def throwMoreDarts(XY,sXY,o,n,xx,yy,rr):
     """
     does the same as darts, but adds to existing points, making sure that
     distances from new nodes to source and vein nodes is greater than
     sourceDist.
     """
 
-    dartsxy = randomPointsInCircle(n)
+    dartsxy = randomPointsOnCircle(n,xx=xx,yy=yy,rr=rr)
 
     jj = []
 
@@ -310,11 +305,12 @@ def main():
     return VSdict,SVdict
 
   ### INITIALIZE
-
+  
+  rr       = initR
   XY       = zeros((vmax,2),dtype=ft)
   P        = zeros(vmax,dtype=bigint)-1
   W        = zeros(vmax,dtype=float)
-  sXY,snum = darts(sinit)
+  sXY,snum = darts(sinit,C,C,rr)
 
   distVS   = None
   nodemap  = None
@@ -330,11 +326,7 @@ def main():
   xyinit          = zeros( (FOUR,2) )
   xyinit[:FOUR,:] = array( [[0.,0.],[1.,0.],[1.,1.],[0.,1.]] )
 
-
-  for i in xrange(rootNodes):
-    t = random()*2.*pi
-    xy = C  + array( [cos(t),sin(t)] )*RAD
-    XY[i,:]          = xy
+  XY[0,:] = C
 
   ## QJ makes all added points appear in the triangulation
   ## if they are duplicates they are added by adding a random small number to
@@ -390,10 +382,11 @@ def main():
       sXY  = sXY[mask,:]
       snum = sXY.shape[0]
 
-      sXY,snum = throwMoreDarts(XY,sXY,o,sadd)
+      sXY,snum = throwMoreDarts(XY,sXY,o,sadd,C,C,rr)
+      rr+=ddR
 
       #if snum<3 or itt > 299:
-      if snum<3:
+      if snum<3 or rr>0.4:
         break
 
       if not itt % 50:
