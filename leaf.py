@@ -280,22 +280,21 @@ def main():
     VSdict = defaultdict(list)
     
     # simplex -> vertices
-    points     = ltri.simplices
+    p  = ltri.simplices
     # s -> simplex
-    simplexj   = ltri.find_simplex(lsXY,bruteforce=True,tol=1e-10) 
-    # s -> neighbors
-    neighbors = ltri.neighbors[simplexj] 
+    js = ltri.find_simplex(lsXY,bruteforce=True,tol=1e-10) 
+    # s -> potential neighbors
+    vv = ( unique( positive( p[ns,:]-FOUR ) ) \
+             for ns in ltri.neighbors[js] )
     
-    for j,neighs in enumerate(neighbors):
-      vv  = positive( points[neighs,:]-FOUR )
-      ii  = unique(vv)
+    for j,ii in enumerate(vv):
       iin = ii.shape[0]
       
       ##  = max { ||u_i-s||, ||u_i-v|| }
       mas = maximum( cdist( lXY[ii,:],lXY[ii,:],'euclidean'),
                        ldistVS[ii,j] )
       ##        ||v-s|| < mas
-      compare = ldistVS[ii,j][:,None] < mas
+      compare = reshape(ldistVS[ii,j],(iin,1)) < mas
       mask    = npsum(compare,axis=1) == iin-1
       maskn   = npsum(mask)
 
