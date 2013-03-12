@@ -70,7 +70,7 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 500
+  SIZE   = 1000
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
@@ -284,15 +284,28 @@ def main():
     # s -> simplex
     js = ltri.find_simplex(lsXY,bruteforce=True,tol=1e-10) 
     # s -> potential neighbors
-    vv = ( unique( positive( p[ns,:]-FOUR ) ) \
-             for ns in ltri.neighbors[js] )
-    
+    vv = [ unique( positive( p[ns,:]-FOUR ) ) \
+             for ns in ltri.neighbors[js] ]
+
+    uniqvv = unique( hstack(vv) )
+    vvdist = cdist( lXY[uniqvv,:],lXY[uniqvv,:],'euclidean')
+
+    lind = array(range(uniqvv.shape[0]),dtype=int)
+
     for j,ii in enumerate(vv):
       iin = ii.shape[0]
-      
+      ## corresponds to
+      #    local = [np.where(uniqvv==i)[0][0] for i in ii]
+      #  that is, the local mapping of ii into uniqvv 
+      #  uniqvv must be sorted and all elements in ii must be in uniqvv
+      local = np.searchsorted(uniqvv, ii)
       ##  = max { ||u_i-s||, ||u_i-v|| }
-      mas = maximum( cdist( lXY[ii,:],lXY[ii,:],'euclidean'),
-                       ldistVS[ii,j] )
+      mas = maximum( vvdist[local,:][:,local], ldistVS[ii,j] )
+      
+      ## do all distance calculations locally:
+      #mas = maximum( cdist( lXY[ii,:],lXY[ii,:],'euclidean'),
+                       #ldistVS[ii,j] )
+
       ##        ||v-s|| < mas
       compare = reshape(ldistVS[ii,j],(iin,1)) < mas
       mask    = npsum(compare,axis=1) == iin-1
