@@ -70,7 +70,7 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 1000
+  SIZE   = 500
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
@@ -244,7 +244,7 @@ def main():
     jj = []
 
     dartsV = cdist(dartsxy,  XY[:o,:],'euclidean')
-    dartsS = cdist(dartsxy, sXY       ,'euclidean')
+    dartsS = cdist(dartsxy, sXY      ,'euclidean')
 
     ## remove new nodes that are too close to other 
     ## new nodes or existing nodes
@@ -276,31 +276,25 @@ def main():
       surounding simplices.
     """
     
-    row = []
-    col = []
-    def listext(i,j):
-      row.extend(i)
-      col.extend(j)
-
     SVdict = {}
     VSdict = defaultdict(list)
-
-    neighbors = ltri.neighbors
-    simplices = ltri.simplices
-    simplexj  = ltri.find_simplex(lsXY)
     
-    for j,simplex in enumerate(simplexj):
-      nsimplices = positive( neighbors[simplex] )
-      vertices   = positive( simplices[nsimplices,:]-FOUR )
-
-      ii         = unique(vertices)
-      iin        = ii.shape[0]
+    # simplex -> vertices
+    p  = ltri.simplices
+    # s -> simplex
+    js = ltri.find_simplex(lsXY,bruteforce=True,tol=1e-10) 
+    # s -> potential neighbors
+    vv = ( unique( positive( p[ns,:]-FOUR ) ) \
+             for ns in ltri.neighbors[js] )
+    
+    for j,ii in enumerate(vv):
+      iin = ii.shape[0]
       
-      ##      = max { ||u_i-s||, ||u_i-v|| }
-      mas     = maximum(  cdist( lXY[ii,:],lXY[ii,:],'euclidean'),
-                          ldistVS[ii,j] )
+      ##  = max { ||u_i-s||, ||u_i-v|| }
+      mas = maximum( cdist( lXY[ii,:],lXY[ii,:],'euclidean'),
+                       ldistVS[ii,j] )
       ##        ||v-s|| < mas
-      compare = ldistVS[ii,j][:,None] < mas
+      compare = reshape(ldistVS[ii,j],(iin,1)) < mas
       mask    = npsum(compare,axis=1) == iin-1
       maskn   = npsum(mask)
 
@@ -341,7 +335,7 @@ def main():
   ## the node.
   tri = triag( vstack(( xyinit,XY[:o,:]  )),
                incremental=True,
-               qhull_options='QJ')
+               qhull_options='QJ Qc')
   triadd = tri.add_points
 
   ### MAIN LOOP
