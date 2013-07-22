@@ -103,7 +103,7 @@ def main():
   ## maximum number of vein nodes
   vmax        = 1*1e7
   # number of inital source nodes
-  sinit       = 10
+  sinit       = 10000
   # number of source nodes to attempt to add in each iteration
   sadd        = 2
   ## width of widest vein nodes when rendered
@@ -154,15 +154,17 @@ def main():
     """
 
     ## simple vein width calculation
-    for i in reversed(xrange(rootNodes,o)):
-      ii = P[i]
-      while ii>1:
-        W[ii]+=1.
-        ii = P[ii]
+    #for i in reversed(xrange(rootNodes,o)):
+      #ii = P[i]
+      #while ii>1:
+        #W[ii]+=1.
+        #ii = P[ii]
 
-    wmax = W.max()
-    W = sqrt(W/wmax)*rootW
-    W[W<leafW] = leafW
+    #wmax = W.max()
+    #W = sqrt(W/wmax)*rootW
+    #W[W<leafW] = leafW
+
+    W[:] = leafW
 
     ## show vein nodes
     for i in reversed(range(rootNodes,o)):
@@ -406,7 +408,7 @@ def main():
       sXY  = sXY[mask,:]
       snum = sXY.shape[0]
 
-      sXY,snum = throwMoreDarts(XY,sXY,o,sadd)
+      #sXY,snum = throwMoreDarts(XY,sXY,o,sadd)
 
       #if snum<3 or itt > 299:
       if snum<3:
