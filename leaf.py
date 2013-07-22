@@ -93,7 +93,7 @@ def main():
   ## GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
   
   ## minimum distance between source nodes
-  sourceDist  = 10.*STP
+  sourceDist  = 5.*STP
   ## a source node dies when all approaching vein nodes are closer than this
   ## only killzone == veinNode == STP will cause consistently visible merging
   ## of branches in rendering.
@@ -107,9 +107,9 @@ def main():
   # number of source nodes to attempt to add in each iteration
   sadd        = 2
   ## width of widest vein nodes when rendered
-  rootW       = 0.015*SIZE*STP
+  rootW       = 0.02*SIZE*STP
   ## width of smallest vein nodes when rendered
-  leafW       = 2.*STP
+  leafW       = 3.*STP
   ## number of root (vein) nodes
   rootNodes   = 1
 
@@ -172,7 +172,6 @@ def main():
       xyp = XY[P[i],:] - array( cos(a),sin(a) )*s
 
       vcirc(xyp[0],xyp[1],[W[i]/2.]*GRAINS)
-
 
   def tesselation(tri):
     """
@@ -358,6 +357,8 @@ def main():
   itt  = 0
   aggt = 0
   iti = time()
+
+  tri_time = 0
   try:
     while True:
 
@@ -393,7 +394,13 @@ def main():
           o           += mn
 
       ## add new points to triangulation
-      triadd(XY[oo:o,:])
+      #triadd(XY[oo:o,:])
+      
+      tri_time_a = time()
+      del(tri)
+      tri = triag( vstack(( xyinit,XY[:o,:]  )),qhull_options='Pp')
+      tri_time += time()-tri_time_a
+      
 
       ## remove dead soure nodes
       sXY  = sXY[mask,:]
@@ -422,6 +429,8 @@ def main():
   finally:
 
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
+
+    print 'tri time: ', tri_time
     
     print('\ndrawing ...\n')
     draw(P,W,o,XY)
@@ -434,7 +443,7 @@ def main():
 
 if __name__ == '__main__' :
 
-  if False:
+  if True:
     import pstats
     import cProfile
     OUT = 'profile'
