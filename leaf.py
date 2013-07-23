@@ -70,13 +70,13 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 1000
+  SIZE   = 700
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
   FRONT  = 0.
   ## filename of image
-  OUT    = './darts.test.img'
+  OUT    = './img.leaf'
   ## size of pixels on canvas
   STP    = 1./SIZE
   ## center of canvas
@@ -93,7 +93,7 @@ def main():
   ## GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
   
   ## minimum distance between source nodes
-  sourceDist  = 5.*STP
+  sourceDist  = 7.*STP
   ## a source node dies when all approaching vein nodes are closer than this
   ## only killzone == veinNode == STP will cause consistently visible merging
   ## of branches in rendering.
@@ -103,7 +103,7 @@ def main():
   ## maximum number of vein nodes
   vmax        = 1*1e7
   # number of inital source nodes
-  sinit       = 10
+  sinit       = 10000
   # number of source nodes to attempt to add in each iteration
   sadd        = 2
   ## width of widest vein nodes when rendered
@@ -406,7 +406,7 @@ def main():
       sXY  = sXY[mask,:]
       snum = sXY.shape[0]
 
-      sXY,snum = throwMoreDarts(XY,sXY,o,sadd)
+      #sXY,snum = throwMoreDarts(XY,sXY,o,sadd)
 
       #if snum<3 or itt > 299:
       if snum<3:
