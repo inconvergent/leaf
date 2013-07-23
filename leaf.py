@@ -148,6 +148,16 @@ def main():
   vcirc = vectorize(circ)
 
 
+  def dist2hd(x,y):
+    d = zeros((x.shape[0],y.shape[0]),dtype=x.dtype)
+    for i in xrange(x.shape[1]):
+      diff2 = x[:,i,None]-y[:,i]
+      diff2 **= 2.
+      d += diff2
+    sqrt(d,d)
+    return d
+
+
   def draw(P,W,o,XY):
     """
     draws the veins
@@ -232,34 +242,6 @@ def main():
 
     return res,lenres
 
-
-  def throwMoreDarts(XY,sXY,o,n):
-    """
-    does the same as darts, but adds to existing points, making sure that
-    distances from new nodes to source and vein nodes is greater than
-    sourceDist.
-    """
-
-    dartsxy = randomPointsInCircle(n)
-
-    jj = []
-
-    dartsV = cdist(dartsxy,  XY[:o,:],'euclidean')
-    dartsS = cdist(dartsxy, sXY      ,'euclidean')
-
-    ## remove new nodes that are too close to other 
-    ## new nodes or existing nodes
-    for j in xrange(n-1):
-
-      if all(dartsV[j,:]>sourceDist) and\
-         all(dartsS[j,:]>sourceDist):
-        jj.append(j)
-    
-    res = rowstack(( sXY,dartsxy[array(jj,dtype=bigint)] ))
-    lenres = res.shape[0]
-
-    return res,lenres
-
   
   #@timeit
   def makeNodemap(snum,ltri,lXY,lsXY):
@@ -276,7 +258,9 @@ def main():
       we save time by only checking the vein nodes that belong to the
       surounding simplices.
     """
-    
+   
+    localtime = time()
+    timesum = 0.
     SVdict = {}
     VSdict = defaultdict(list)
     distdict = defaultdict(list)
@@ -286,48 +270,47 @@ def main():
     # s -> simplex
     js = ltri.find_simplex(lsXY,bruteforce=True,tol=1e-10) 
     # s -> neighboring simplices including s
-    neigh = colstack((ltri.neighbors[js],js))
+    neigh = colstack(( ltri.neighbors[js],js ))
     # s -> potential neighboring points
-    vv = [ unique( positive( p[ns,:]-FOUR ) ) \
-             for ns in neigh ]
+    vv = ( unique( positive( p[ns,:]-FOUR ) ) \
+             for ns in neigh )
 
-    uniqvv = unique( hstack(vv) )
-    vvdist = cdist( lXY[uniqvv,:],lXY[uniqvv,:],'euclidean')
-
-    lind = array(range(uniqvv.shape[0]),dtype=int)
+    #timesum += time()-localtime
+    #print timesum, 
 
     for j,ii in enumerate(vv):
       iin = ii.shape[0]
 
-      distvs = reshape( cdist( lXY[ii],lsXY[j:j+1],'euclidean' ), \
-                        (len(ii),) )
 
-      ## corresponds to
-      #    local = [np.where(uniqvv==i)[0][0] for i in ii]
-      #  that is, the local mapping of ii into uniqvv 
-      #  uniqvv must be sorted and all elements in ii must be in uniqvv
-      local = np.searchsorted(uniqvv, ii)
+      #localtime = time()
+      #distVS = reshape( cdist( lXY[ii],lsXY[j:j+1],'euclidean' ), \
+                        #(iin,) )
+      distVS = reshape( dist2hd( lXY[ii],lsXY[j:j+1] ), \
+                        (iin,) )
+      #timesum += time()-localtime
+
       ##  = max { ||u_i-s||, ||u_i-v|| }
-      #mas = maximum( vvdist[local,:][:,local], ldistVS[ii,j] )
-      mas = maximum( vvdist[local,:][:,local], distvs )
-      
-      ## do all distance calculations locally:
-      #mas = maximum( cdist( lXY[ii,:],lXY[ii,:],'euclidean'),
-                       #ldistVS[ii,j] )
+      #distvv = cdist( lXY[ii,:],lXY[ii,:],'euclidean' )
+      distvv = dist2hd(lXY[ii,:],lXY[ii,:])
+
+      mas = maximum( distvv,distVS )
 
       ##        ||v-s|| < mas
-      #compare = reshape(ldistVS[ii,j],(iin,1)) < mas
-      compare = reshape(distvs,(iin,1)) < mas
+      compare = reshape(distVS,(iin,1)) < mas
       mask    = npsum(compare,axis=1) == iin-1
 
-      SVdict[j]= ( distvs[mask],ii[mask] )
+      SVdict[j] = ( distVS[mask],ii[mask] )
 
-      for d,i in zip( distvs[mask],ii[mask] ):
+      for d,i in zip( distVS[mask],ii[mask] ):
         VSdict[i].append(j)
         distdict[i].append(d)
 
+
     for i,jj in VSdict.iteritems():
       VSdict[i] = ( array(distdict[i]),jj )
+
+    #print timesum
+    #localtime = time()
 
     return VSdict,SVdict
 
@@ -416,8 +399,6 @@ def main():
       ## remove dead soure nodes
       sXY  = sXY[mask,:]
       snum = sXY.shape[0]
-
-      #sXY,snum = throwMoreDarts(XY,sXY,o,sadd)
 
       #if snum<3 or itt > 299:
       if snum<3:
