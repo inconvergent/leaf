@@ -51,7 +51,6 @@ def main():
   rowstack  = np.row_stack
   hstack    = np.hstack
   vstack    = np.vstack
-  triag     = Delaunay
   unique    = np.unique
   positive  = lambda a: a[a>-1]
   vectorize = np.vectorize
@@ -65,6 +64,8 @@ def main():
   reshape   = np.reshape
   npsum     = np.sum
   npall     = np.all
+  arange    = np.arange
+  concatenate = np.concatenate
 
 
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
@@ -261,8 +262,8 @@ def main():
     return res,lenres
 
   
-  #@timeit
-  def makeNodemap(snum,ldistVS,ltri,lXY,lsXY):
+
+  def makeNodemap(snum,ltri,lXY,lsXY):
     """
     map and inverse map of relative neighboring vein nodes of all source nodes
     
@@ -279,6 +280,7 @@ def main():
     
     SVdict = {}
     VSdict = defaultdict(list)
+    vsdictdist = defaultdict(list)
     
     # simplex -> vertices
     p  = ltri.simplices
@@ -286,36 +288,47 @@ def main():
     js = ltri.find_simplex(lsXY,bruteforce=True,tol=1e-10) 
     # s -> neighboring simplices including s
     neigh = colstack((ltri.neighbors[js],js))
-    # s -> potential neighboring points
+    # s -> potential neighboring vein nodes
     vv = [ unique( positive( p[ns,:]-FOUR ) ) \
              for ns in neigh ]
 
     uniqvv = unique( hstack(vv) )
     vvdist = cdist( lXY[uniqvv,:],lXY[uniqvv,:],'euclidean')
 
-    lind = array(range(uniqvv.shape[0]),dtype=int)
+    lind = arange(uniqvv.shape[0])
+
 
     for j,ii in enumerate(vv):
       iin = ii.shape[0]
+
+      distVS = cdist(lsXY[j:j+1,:],lXY[ii,:],'euclidean')
+
       ## corresponds to
       #    local = [np.where(uniqvv==i)[0][0] for i in ii]
       #  that is, the local mapping of ii into uniqvv 
       #  uniqvv must be sorted and all elements in ii must be in uniqvv
       local = np.searchsorted(uniqvv, ii)
       ##  = max { ||u_i-s||, ||u_i-v|| }
-      mas = maximum( vvdist[local,:][:,local], ldistVS[ii,j] )
+      #mas = maximum( vvdist[local,:][:,local], ldistVS[ii,j] )
+      mas = maximum( vvdist[local,:][:,local], distVS )
       
       ## do all distance calculations locally:
       #mas = maximum( cdist( lXY[ii,:],lXY[ii,:],'euclidean'),
                        #ldistVS[ii,j] )
 
       ##        ||v-s|| < mas
-      compare = reshape(ldistVS[ii,j],(iin,1)) < mas
+      compare = reshape(distVS,(iin,1)) < mas
       mask    = npsum(compare,axis=1) == iin-1
       maskn   = npsum(mask)
 
-      SVdict[j]=ii[mask]
-      [VSdict[i].append(j) for i in ii[mask]]
+      SVdict[j] = ( ii[mask],distVS[:,mask] )
+
+      for i,d in zip( ii[mask],distVS[:,mask] ):
+        VSdict[i].append(j)
+        vsdictdist[i].append(d)
+    
+    for i,jj in VSdict.iteritems():
+      VSdict[i] = (array(jj),concatenate(vsdictdist[i]) )
 
     return VSdict,SVdict
 
@@ -349,7 +362,7 @@ def main():
   ## QJ makes all added points appear in the triangulation
   ## if they are duplicates they are added by adding a random small number to
   ## the node.
-  tri = triag( vstack(( xyinit,XY[:o,:]  )),
+  tri = Delaunay( vstack(( xyinit,XY[:o,:]  )),
                incremental=True,
                qhull_options='QJ Qc')
   triadd = tri.add_points
@@ -365,16 +378,17 @@ def main():
     while True:
 
       ## distance: vein nodes -> source nodes
-      distVS = cdist(XY[:o,:],sXY,'euclidean')
+      #distVS = cdist(XY[:o,:],sXY,'euclidean')
       
       ## this is where the magic might happen
-      VSdict,SVdict = makeNodemap(snum,distVS,tri,XY,sXY)
+      VSdict,SVdict = makeNodemap(snum,tri,XY,sXY)
 
       ## grow new vein nodes
       oo = o
-      for i,jj in VSdict.iteritems():
-        mask = distVS[i,jj]<=killzone
-        if jj and not any(mask):
+      for (i,(jj,d)) in VSdict.iteritems():
+        mask = (d<killzone)
+        #mask = distVS[i,jj]<=killzone
+        if any(jj) and not any(mask):
           txy      = npsum( XY[i,:] -sXY[jj,:] ,axis=0)
           a        = arctan2( txy[1],txy[0] )
           xy       = array( [cos(a),sin(a)] )*veinNode
@@ -384,8 +398,9 @@ def main():
         
       ## mask out dead source nodes
       mask = ones(snum,dtype=bool)
-      for j,ii in SVdict.iteritems():
-        if all(distVS[ii,j]<=killzone):
+      for (j,(ii,d)) in SVdict.iteritems():
+        #if all(distVS[ii,j]<=killzone):
+        if all( d[0,:]<=killzone ):
           mask[j]      = False
           mn           = ii.shape[0]
           txy          = XY[ii,:]-sXY[j,:]
@@ -395,12 +410,12 @@ def main():
           P[ o:o+mn  ] = ii
           o           += mn
 
+      tri_time_a = time()
       ## add new points to triangulation
       #triadd(XY[oo:o,:])
-      
-      tri_time_a = time()
+
       del(tri)
-      tri = triag( vstack(( xyinit,XY[:o,:]  )),qhull_options='Pp')
+      tri = Delaunay( vstack(( xyinit,XY[:o,:]  )),qhull_options='Pp')
       tri_time += time()-tri_time_a
       
 
