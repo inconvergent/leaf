@@ -154,15 +154,17 @@ def main():
     """
 
     ## simple vein width calculation
-    for i in reversed(xrange(rootNodes,o)):
-      ii = P[i]
-      while ii>1:
-        W[ii]+=1.
-        ii = P[ii]
+    #for i in reversed(xrange(rootNodes,o)):
+      #ii = P[i]
+      #while ii>1:
+        #W[ii]+=1.
+        #ii = P[ii]
 
-    wmax = W.max()
-    W = sqrt(W/wmax)*rootW
-    W[W<leafW] = leafW
+    #wmax = W.max()
+    #W = sqrt(W/wmax)*rootW
+    #W[W<leafW] = leafW
+
+    W[:] = leafW
 
     ## show vein nodes
     for i in reversed(range(rootNodes,o)):
@@ -260,7 +262,7 @@ def main():
 
   
   #@timeit
-  def makeNodemap(snum,ldistVS,ltri,lXY,lsXY):
+  def makeNodemap(snum,ltri,lXY,lsXY):
     """
     map and inverse map of relative neighboring vein nodes of all source nodes
     
@@ -277,6 +279,7 @@ def main():
     
     SVdict = {}
     VSdict = defaultdict(list)
+    distdict = defaultdict(list)
     
     # simplex -> vertices
     p  = ltri.simplices
@@ -295,25 +298,36 @@ def main():
 
     for j,ii in enumerate(vv):
       iin = ii.shape[0]
+
+      distvs = reshape( cdist( lXY[ii],lsXY[j:j+1],'euclidean' ), \
+                        (len(ii),) )
+
       ## corresponds to
       #    local = [np.where(uniqvv==i)[0][0] for i in ii]
       #  that is, the local mapping of ii into uniqvv 
       #  uniqvv must be sorted and all elements in ii must be in uniqvv
       local = np.searchsorted(uniqvv, ii)
       ##  = max { ||u_i-s||, ||u_i-v|| }
-      mas = maximum( vvdist[local,:][:,local], ldistVS[ii,j] )
+      #mas = maximum( vvdist[local,:][:,local], ldistVS[ii,j] )
+      mas = maximum( vvdist[local,:][:,local], distvs )
       
       ## do all distance calculations locally:
       #mas = maximum( cdist( lXY[ii,:],lXY[ii,:],'euclidean'),
                        #ldistVS[ii,j] )
 
       ##        ||v-s|| < mas
-      compare = reshape(ldistVS[ii,j],(iin,1)) < mas
+      #compare = reshape(ldistVS[ii,j],(iin,1)) < mas
+      compare = reshape(distvs,(iin,1)) < mas
       mask    = npsum(compare,axis=1) == iin-1
-      maskn   = npsum(mask)
 
-      SVdict[j]=ii[mask]
-      [VSdict[i].append(j) for i in ii[mask]]
+      SVdict[j]= ( distvs[mask],ii[mask] )
+
+      for d,i in zip( distvs[mask],ii[mask] ):
+        VSdict[i].append(j)
+        distdict[i].append(d)
+
+    for i,jj in VSdict.iteritems():
+      VSdict[i] = ( array(distdict[i]),jj )
 
     return VSdict,SVdict
 
@@ -323,9 +337,6 @@ def main():
   P        = zeros(vmax,dtype=bigint)-1
   W        = zeros(vmax,dtype=float)
   sXY,snum = darts(sinit)
-
-  distVS   = None
-  nodemap  = None
 
   ## (START) VEIN NODES
 
@@ -363,15 +374,15 @@ def main():
     while True:
 
       ## distance: vein nodes -> source nodes
-      distVS = cdist(XY[:o,:],sXY,'euclidean')
+      #distVS = cdist(XY[:o,:],sXY,'euclidean')
       
       ## this is where the magic might happen
-      VSdict,SVdict = makeNodemap(snum,distVS,tri,XY,sXY)
+      VSdict,SVdict = makeNodemap(snum,tri,XY,sXY)
 
       ## grow new vein nodes
       oo = o
-      for i,jj in VSdict.iteritems():
-        mask = distVS[i,jj]<=killzone
+      for ( i,(djj,jj) ) in VSdict.iteritems():
+        mask = djj<=killzone
         if jj and not any(mask):
           txy      = npsum( XY[i,:] -sXY[jj,:] ,axis=0)
           a        = arctan2( txy[1],txy[0] )
@@ -382,8 +393,8 @@ def main():
         
       ## mask out dead source nodes
       mask = ones(snum,dtype=bool)
-      for j,ii in SVdict.iteritems():
-        if all(distVS[ii,j]<=killzone):
+      for ( j,(dii,ii) ) in SVdict.iteritems():
+        if all(dii<=killzone):
           mask[j]      = False
           mn           = ii.shape[0]
           txy          = XY[ii,:]-sXY[j,:]
