@@ -17,7 +17,7 @@ from collections import defaultdict
 np.random.seed(1)
 
 
-@profile
+#@profile
 def main():
   """
   time to load up the ponies
@@ -62,46 +62,46 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 500
+  SIZE = 1000
   ## background color (white)
-  BACK   = 1.
+  BACK = 1.
   ## foreground color (black)
   FRONT  = 0.
   ## filename of image
-  OUT    = './img.leaf'
+  OUT = './img.leaf'
   ## size of pixels on canvas
-  STP    = 1./SIZE
+  STP = 1./SIZE
   ## center of canvas
-  C      = 0.5
+  C = 0.5
   ## radius of circle with source nodes
-  RAD    = 0.4
+  RAD = 0.4
   ## number of grains used to sand paint each vein node
   GRAINS = 1
   ## alpha channel when rendering
-  ALPHA  = 1.
+  ALPHA = 1.
   ## because five is right out
-  FOUR   = 4
+  FOUR = 4
 
   ## GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
   
   ## minimum distance between source nodes
-  sourceDist  = 7.*STP
+  sourceDist = 7.*STP
   ## a source node dies when all approaching vein nodes are closer than this
   ## only killzone == veinNode == STP will cause consistently visible merging
   ## of branches in rendering.
-  killzone    = STP
+  killzone = STP
   ## radius of vein nodes when rendered
-  veinNode    = STP
+  veinNode = STP
   ## maximum number of vein nodes
-  vmax        = 1*1e7
+  vmax = 1*1e7
   # number of inital source nodes
-  sinit       = 500
+  sinit = 10000
   ## width of widest vein nodes when rendered
-  rootW       = 0.02*SIZE*STP
+  rootW = 0.01*SIZE*STP
   ## width of smallest vein nodes when rendered
-  leafW       = 2.*STP
+  leafW = 1.3*STP
   ## number of root (vein) nodes
-  rootNodes   = 1
+  rootNodes = 2
 
 
   def ctxInit():
@@ -138,7 +138,7 @@ def main():
   vcirc = vectorize(circ)
 
 
-  @profile
+  #@profile
   def dist2hd(x,y):
     d = zeros((x.shape[0],y.shape[0]),dtype=x.dtype)
     for i in xrange(x.shape[1]):
@@ -155,17 +155,17 @@ def main():
     """
 
     ## simple vein width calculation
-    #for i in reversed(xrange(rootNodes,o)):
-      #ii = P[i]
-      #while ii>1:
-        #W[ii]+=1.
-        #ii = P[ii]
+    for i in reversed(xrange(rootNodes,o)):
+      ii = P[i]
+      while ii>1:
+        W[ii]+=1.
+        ii = P[ii]
 
-    #wmax = W.max()
-    #W = sqrt(W/wmax)*rootW
-    #W[W<leafW] = leafW
+    wmax = W.max()
+    W = sqrt(W/wmax)*rootW
 
-    W[:] = leafW
+    W[W<leafW] = leafW
+    #W[:] = leafW
 
     ## show vein nodes
     for i in reversed(range(rootNodes,o)):
@@ -174,7 +174,7 @@ def main():
       s = linspace(0,1,GRAINS)*veinNode
       xyp = XY[P[i],:] - array( cos(a),sin(a) )*s
 
-      vcirc(xyp[0],xyp[1],[W[i]/2.]*GRAINS)
+      vcirc(xyp[0],xyp[1],[W[i]]*GRAINS)
 
 
   def randomPointsInCircle(n,xx=C,yy=C,rr=RAD):
@@ -220,7 +220,7 @@ def main():
     return res,lenres
 
   
-  @profile  
+  #@profile  
   def makeNodemap(snum,ltri,lXY,lsXY):
     """
     map and inverse map of relative neighboring vein nodes of all source nodes
@@ -287,7 +287,7 @@ def main():
     return VSdict2,SVdict
 
 
-  @profile
+  #@profile
   def grow_new_veins(vs,lXY,lsXY,lP,o):
     """
     each vein node travels in the average direction of all source nodes
@@ -303,7 +303,7 @@ def main():
       o += 1
     return o
 
-  @profile
+  #@profile
   def mask_out_dead(sv,n):
 
     mask = ones(n,dtype=bool)
@@ -312,13 +312,18 @@ def main():
     
     return mask
 
-  @profile
-  def retriangulate(tri,xy,xyinit,o,oo):
+  #@profile
+  def retriangulate_add(tri,xy,o,oo):
 
     tri.add_points(xy[oo:o,:])
-    #tri = triag( vstack(( xyinit,XY[:o,:]  )), \
-               ##incremental=True,
-               #qhull_options='QJ Qc Pp')
+
+  #@profile
+  def retriangulate_new(xyinit,xy,o):
+    
+    tri = triag( vstack(( xyinit,xy[:o,:]  )), \
+               qhull_options='QJ Qc Pp')
+
+    return tri
 
   ### INITIALIZE
 
@@ -327,8 +332,8 @@ def main():
   W = zeros(vmax,dtype=float)
   sXY,snum = darts(sinit)
 
-  ctx.set_source_rgb(1.,0.,0.)
-  vcirc(sXY[:snum,0], sXY[:snum,1], [STP*3.]*len(sXY))
+  ctx.set_source_rgb(0.,0.,0.)
+  vcirc(sXY[:snum,0], sXY[:snum,1], [leafW]*len(sXY))
 
   ## (START) VEIN NODES
 
@@ -343,9 +348,9 @@ def main():
 
 
   for i in xrange(rootNodes):
-    #t = random()*2.*pi
-    t = 0.
-    xy = C + array( [cos(t),sin(t)] )*RAD
+    t = random()*2.*pi
+    r = random()*RAD
+    xy = C + array( [cos(t),sin(t)] )*r
     XY[i,:] = xy
 
   ## QJ makes all added points appear in the triangulation
@@ -377,13 +382,14 @@ def main():
 
 
       ## add new points to triangulation
-      retriangulate(tri,XY,xyinit,o,oo)
+      #retriangulate_add(tri,XY,o,oo)
+      tri = retriangulate_new(xyinit,XY,o)
 
       ## remove dead soure nodes
       sXY  = sXY[mask,:]
       snum = sXY.shape[0]
 
-      if o==oo:
+      if o==oo or snum<5:
         break
 
       if not itt % 50:
@@ -398,13 +404,16 @@ def main():
       itt += 1
 
   except KeyboardInterrupt:
-    pass
+    print
+    print 'aborted by keypress'
+    print 
 
   finally:
 
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
     print('\ndrawing ...\n')
+
     draw(P,W,o,XY)
 
 
