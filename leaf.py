@@ -14,18 +14,9 @@ import sys
 from scipy.spatial import Delaunay,distance
 from collections import defaultdict
 
-def timeit(method):
-  def timed(*args, **kw):
-    ts = time()
-    result = method(*args, **kw)
-    te = time()
-    print '{:s} took {:8.4f} sec'\
-            .format(method.__name__,te-ts)
-    return result
-  return timed
+np.random.seed(1)
 
 
-#@timeit
 @profile
 def main():
   """
@@ -147,6 +138,7 @@ def main():
   vcirc = vectorize(circ)
 
 
+  @profile
   def dist2hd(x,y):
     d = zeros((x.shape[0],y.shape[0]),dtype=x.dtype)
     for i in xrange(x.shape[1]):
@@ -228,7 +220,6 @@ def main():
     return res,lenres
 
   
-  #@timeit
   @profile  
   def makeNodemap(snum,ltri,lXY,lsXY):
     """
@@ -264,19 +255,15 @@ def main():
     for j,ii in enumerate(vv):
       iin = ii.shape[0]
 
-
-      #distVS = reshape( cdist( lXY[ii],lsXY[j:j+1],'euclidean' ), \
-                        #(iin,) )
       distVS = reshape( dist2hd( lXY[ii],lsXY[j:j+1] ), \
                         (iin,) )
 
       ##  = max { ||u_i-s||, ||u_i-v|| }
-      #distvv = cdist( lXY[ii,:],lXY[ii,:],'euclidean' )
       distvv = dist2hd(lXY[ii,:],lXY[ii,:])
 
       mas = maximum( distvv,distVS )
 
-      ##        ||v-s|| < mas
+      ## ||v-s|| < mas
       compare = reshape(distVS,(iin,1)) < mas
       mask = npsum(compare,axis=1) == iin-1
       
@@ -284,24 +271,31 @@ def main():
       if all( distVS[mask]<=killzone ):
         SVdict[j] = ii[mask]
 
-      for d,i in zip( distVS[mask],ii[mask] ):
+      for d,i in zip(distVS[mask],ii[mask]):
         VSdict[i].append(j)
         distdict[i].append(d)
 
+    VSdict = { i:array(jj) for i,jj in VSdict.iteritems() }
+    distdict = { i:array(dd) for i,dd in distdict.iteritems() }
 
+    VSdict2 = {}
     for i,jj in VSdict.iteritems():
-      bad = all( array(distdict[i])<=killzone )
-      if jj and not bad:
-        VSdict[i] = array(jj)
+      mask = distdict[i] > killzone
+      if any(mask):
+        VSdict2[i] = jj[mask]
 
-    return VSdict,SVdict
+    return VSdict2,SVdict
 
 
   @profile
   def grow_new_veins(vs,lXY,lsXY,lP,o):
+    """
+    each vein node travels in the average direction of all source nodes
+    affecting it.
+    """
 
     for i,jj in vs.iteritems():
-      txy = npsum( lXY[i,:] -sXY[jj,:] ,axis=0)
+      txy = npsum( lXY[i,:]-sXY[jj,:], axis=0 )
       a = arctan2( txy[1],txy[0] )
       xy = array( [cos(a),sin(a)] )*veinNode
       lXY[o,:] = lXY[i,:] - xy 
@@ -313,10 +307,18 @@ def main():
   def mask_out_dead(sv,n):
 
     mask = ones(n,dtype=bool)
-    for j,ii in sv.iteritems():
+    for j,_ in sv.iteritems():
       mask[j] = False
     
     return mask
+
+  @profile
+  def retriangulate(tri,xy,xyinit,o,oo):
+
+    tri.add_points(xy[oo:o,:])
+    #tri = triag( vstack(( xyinit,XY[:o,:]  )), \
+               ##incremental=True,
+               #qhull_options='QJ Qc Pp')
 
   ### INITIALIZE
 
@@ -326,7 +328,7 @@ def main():
   sXY,snum = darts(sinit)
 
   ctx.set_source_rgb(1.,0.,0.)
-  vcirc(sXY[:snum,0], sXY[:snum,1], [STP*3]*len(sXY))
+  vcirc(sXY[:snum,0], sXY[:snum,1], [STP*3.]*len(sXY))
 
   ## (START) VEIN NODES
 
@@ -341,7 +343,8 @@ def main():
 
 
   for i in xrange(rootNodes):
-    t = random()*2.*pi
+    #t = random()*2.*pi
+    t = 0.
     xy = C + array( [cos(t),sin(t)] )*RAD
     XY[i,:] = xy
 
@@ -349,9 +352,8 @@ def main():
   ## if they are duplicates they are added by adding a random small number to
   ## the node.
   tri = triag( vstack(( xyinit,XY[:o,:]  )), \
-               #incremental=True,
+               incremental=True,
                qhull_options='QJ Qc')
-  triadd = tri.add_points
 
   ### MAIN LOOP
 
@@ -373,20 +375,15 @@ def main():
       ## mask out dead source nodes
       mask = mask_out_dead(SVdict, snum)
 
+
       ## add new points to triangulation
-      #triadd(XY[oo:o,:])
-      
-      tri_time_a = time()
-      del(tri)
-      tri = triag( vstack(( xyinit,XY[:o,:]  )),qhull_options='Pp')
-      tri_time += time()-tri_time_a
-      
+      retriangulate(tri,XY,xyinit,o,oo)
 
       ## remove dead soure nodes
       sXY  = sXY[mask,:]
       snum = sXY.shape[0]
 
-      if snum<1:
+      if o==oo:
         break
 
       if not itt % 50:
@@ -407,8 +404,6 @@ def main():
 
     ctx.set_source_rgb(FRONT,FRONT,FRONT)
 
-    print 'tri time: ', tri_time
-    
     print('\ndrawing ...\n')
     draw(P,W,o,XY)
 
