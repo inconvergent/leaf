@@ -25,7 +25,7 @@ def timeit(method):
   return timed
 
 
-@timeit
+#@timeit
 def main():
   """
   time to load up the ponies
@@ -70,7 +70,7 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE   = 700
+  SIZE   = 500
   ## background color (white)
   BACK   = 1.
   ## foreground color (black)
@@ -103,13 +103,11 @@ def main():
   ## maximum number of vein nodes
   vmax        = 1*1e7
   # number of inital source nodes
-  sinit       = 10000
-  # number of source nodes to attempt to add in each iteration
-  sadd        = 2
+  sinit       = 500
   ## width of widest vein nodes when rendered
   rootW       = 0.02*SIZE*STP
   ## width of smallest vein nodes when rendered
-  leafW       = 3.*STP
+  leafW       = 2.*STP
   ## number of root (vein) nodes
   rootNodes   = 1
 
@@ -185,20 +183,6 @@ def main():
 
       vcirc(xyp[0],xyp[1],[W[i]/2.]*GRAINS)
 
-  def tesselation(tri):
-    """
-    show triangulation of all vein nodes
-    """
-
-    for s in tri.simplices:
-      ## ignore the four "container vertices" in the corners
-      if all(s>FOUR-1):
-        xy = tri.points[s,:]
-        ctx.move_to(xy[0,0],xy[0,1])
-        for i in xrange(2):
-          ctx.line_to(xy[i,0],xy[i,1])
-        ctx.stroke()
-
 
   def randomPointsInCircle(n,xx=C,yy=C,rr=RAD):
     """
@@ -244,6 +228,7 @@ def main():
 
   
   #@timeit
+  #@profile  
   def makeNodemap(snum,ltri,lXY,lsXY):
     """
     map and inverse map of relative neighboring vein nodes of all source nodes
@@ -268,26 +253,21 @@ def main():
     # simplex -> vertices
     p  = ltri.simplices
     # s -> simplex
-    js = ltri.find_simplex(lsXY,bruteforce=True,tol=1e-10) 
+    js = ltri.find_simplex(lsXY,bruteforce=True,tol=1e-4) 
     # s -> neighboring simplices including s
     neigh = colstack(( ltri.neighbors[js],js ))
     # s -> potential neighboring points
     vv = ( unique( positive( p[ns,:]-FOUR ) ) \
              for ns in neigh )
 
-    #timesum += time()-localtime
-    #print timesum, 
-
     for j,ii in enumerate(vv):
       iin = ii.shape[0]
 
 
-      #localtime = time()
       #distVS = reshape( cdist( lXY[ii],lsXY[j:j+1],'euclidean' ), \
                         #(iin,) )
       distVS = reshape( dist2hd( lXY[ii],lsXY[j:j+1] ), \
                         (iin,) )
-      #timesum += time()-localtime
 
       ##  = max { ||u_i-s||, ||u_i-v|| }
       #distvv = cdist( lXY[ii,:],lXY[ii,:],'euclidean' )
@@ -298,8 +278,10 @@ def main():
       ##        ||v-s|| < mas
       compare = reshape(distVS,(iin,1)) < mas
       mask    = npsum(compare,axis=1) == iin-1
-
-      SVdict[j] = ( distVS[mask],ii[mask] )
+      
+      ## element has reached killzone (/is too near a source node)
+      if all( distVS[mask]<=killzone ):
+        SVdict[j] = ii[mask]
 
       for d,i in zip( distVS[mask],ii[mask] ):
         VSdict[i].append(j)
@@ -307,10 +289,9 @@ def main():
 
 
     for i,jj in VSdict.iteritems():
-      VSdict[i] = ( array(distdict[i]),jj )
-
-    #print timesum
-    #localtime = time()
+      bad = all( array(distdict[i])<=killzone )
+      if jj and not bad:
+        VSdict[i] = array(jj)
 
     return VSdict,SVdict
 
@@ -320,6 +301,9 @@ def main():
   P        = zeros(vmax,dtype=bigint)-1
   W        = zeros(vmax,dtype=float)
   sXY,snum = darts(sinit)
+
+  ctx.set_source_rgb(1.,0.,0.)
+  vcirc(sXY[:snum,0], sXY[:snum,1], [STP*3]*len(sXY))
 
   ## (START) VEIN NODES
 
@@ -336,13 +320,13 @@ def main():
   for i in xrange(rootNodes):
     t = random()*2.*pi
     xy = C  + array( [cos(t),sin(t)] )*RAD
-    XY[i,:]          = xy
+    XY[i,:] = xy
 
   ## QJ makes all added points appear in the triangulation
   ## if they are duplicates they are added by adding a random small number to
   ## the node.
-  tri = triag( vstack(( xyinit,XY[:o,:]  )),
-               incremental=True,
+  tri = triag( vstack(( xyinit,XY[:o,:]  )), \
+               #incremental=True,
                qhull_options='QJ Qc')
   triadd = tri.add_points
 
@@ -356,36 +340,29 @@ def main():
   try:
     while True:
 
-      ## distance: vein nodes -> source nodes
-      #distVS = cdist(XY[:o,:],sXY,'euclidean')
-      
-      ## this is where the magic might happen
       VSdict,SVdict = makeNodemap(snum,tri,XY,sXY)
 
       ## grow new vein nodes
       oo = o
-      for ( i,(djj,jj) ) in VSdict.iteritems():
-        mask = djj<=killzone
-        if jj and not any(mask):
-          txy      = npsum( XY[i,:] -sXY[jj,:] ,axis=0)
-          a        = arctan2( txy[1],txy[0] )
-          xy       = array( [cos(a),sin(a)] )*veinNode
-          XY[o,:]  = XY[i,:] - xy 
-          P[o]     = i
-          o       += 1
+      for i,jj in VSdict.iteritems():
+        txy      = npsum( XY[i,:] -sXY[jj,:] ,axis=0)
+        a        = arctan2( txy[1],txy[0] )
+        xy       = array( [cos(a),sin(a)] )*veinNode
+        XY[o,:]  = XY[i,:] - xy 
+        P[o]     = i
+        o       += 1
         
       ## mask out dead source nodes
       mask = ones(snum,dtype=bool)
-      for ( j,(dii,ii) ) in SVdict.iteritems():
-        if all(dii<=killzone):
-          mask[j]      = False
-          mn           = ii.shape[0]
-          txy          = XY[ii,:]-sXY[j,:]
-          a            = arctan2( txy[:,1],txy[:,0] )
-          xy           = colstack(( cos(a),sin(a) ))*veinNode
-          XY[o:o+mn,:] = XY[ii,:] + xy 
-          P[ o:o+mn  ] = ii
-          o           += mn
+      for j,ii in SVdict.iteritems():
+        mask[j]      = False
+        #mn           = ii.shape[0]
+        #txy          = XY[ii,:]-sXY[j,:]
+        #a            = arctan2( txy[:,1],txy[:,0] )
+        #xy           = colstack(( cos(a),sin(a) ))*veinNode
+        #XY[o:o+mn,:] = XY[ii,:] + xy 
+        #P[ o:o+mn  ] = ii
+        #o           += mn
 
       ## add new points to triangulation
       #triadd(XY[oo:o,:])
@@ -400,8 +377,7 @@ def main():
       sXY  = sXY[mask,:]
       snum = sXY.shape[0]
 
-      #if snum<3 or itt > 299:
-      if snum<3:
+      if snum<1:
         break
 
       if not itt % 50:
@@ -427,6 +403,7 @@ def main():
     print('\ndrawing ...\n')
     draw(P,W,o,XY)
 
+
     ## save to file
     sur.write_to_png('{:s}.veins.png'.format(OUT))
 
@@ -435,7 +412,7 @@ def main():
 
 if __name__ == '__main__' :
 
-  if True:
+  if False:
     import pstats
     import cProfile
     OUT = 'profile'
