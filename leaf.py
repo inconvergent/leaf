@@ -26,6 +26,7 @@ def timeit(method):
 
 
 #@timeit
+@profile
 def main():
   """
   time to load up the ponies
@@ -177,8 +178,8 @@ def main():
     ## show vein nodes
     for i in reversed(range(rootNodes,o)):
       dxy = XY[P[i],:]-XY[i,:]
-      a   = arctan2(dxy[1],dxy[0])
-      s   = linspace(0,1,GRAINS)*veinNode
+      a = arctan2(dxy[1],dxy[0])
+      s = linspace(0,1,GRAINS)*veinNode
       xyp = XY[P[i],:] - array( cos(a),sin(a) )*s
 
       vcirc(xyp[0],xyp[1],[W[i]/2.]*GRAINS)
@@ -190,14 +191,14 @@ def main():
     """
 
     ## random uniform points in a circle
-    t        = 2.*pi*random(n)
-    u        = random(n)+random(n)
-    r        = zeros(n,dtype=ft)
-    mask     = u>1.
-    xmask    = logicNot(mask)
-    r[mask]  = 2.-u[mask]
+    t = 2.*pi*random(n)
+    u = random(n)+random(n)
+    r = zeros(n,dtype=ft)
+    mask = u>1.
+    xmask = logicNot(mask)
+    r[mask] = 2.-u[mask]
     r[xmask] = u[xmask]
-    xyp      = colstack(( rr*r*cos(t),rr*r*sin(t) ))
+    xyp = colstack(( rr*r*cos(t),rr*r*sin(t) ))
     dartsxy  = xyp + array( [xx,yy] )
 
     return dartsxy
@@ -228,7 +229,7 @@ def main():
 
   
   #@timeit
-  #@profile  
+  @profile  
   def makeNodemap(snum,ltri,lXY,lsXY):
     """
     map and inverse map of relative neighboring vein nodes of all source nodes
@@ -277,7 +278,7 @@ def main():
 
       ##        ||v-s|| < mas
       compare = reshape(distVS,(iin,1)) < mas
-      mask    = npsum(compare,axis=1) == iin-1
+      mask = npsum(compare,axis=1) == iin-1
       
       ## element has reached killzone (/is too near a source node)
       if all( distVS[mask]<=killzone ):
@@ -295,11 +296,33 @@ def main():
 
     return VSdict,SVdict
 
+
+  @profile
+  def grow_new_veins(vs,lXY,lsXY,lP,o):
+
+    for i,jj in vs.iteritems():
+      txy = npsum( lXY[i,:] -sXY[jj,:] ,axis=0)
+      a = arctan2( txy[1],txy[0] )
+      xy = array( [cos(a),sin(a)] )*veinNode
+      lXY[o,:] = lXY[i,:] - xy 
+      lP[o] = i
+      o += 1
+    return o
+
+  @profile
+  def mask_out_dead(sv,n):
+
+    mask = ones(n,dtype=bool)
+    for j,ii in sv.iteritems():
+      mask[j] = False
+    
+    return mask
+
   ### INITIALIZE
 
-  XY       = zeros((vmax,2),dtype=ft)
-  P        = zeros(vmax,dtype=bigint)-1
-  W        = zeros(vmax,dtype=float)
+  XY = zeros((vmax,2),dtype=ft)
+  P = zeros(vmax,dtype=bigint)-1
+  W = zeros(vmax,dtype=float)
   sXY,snum = darts(sinit)
 
   ctx.set_source_rgb(1.,0.,0.)
@@ -313,13 +336,13 @@ def main():
   ## remember that nodes in tri will be four indices higher than in X,Y
 
   o = rootNodes
-  xyinit          = zeros( (FOUR,2) )
+  xyinit = zeros( (FOUR,2) )
   xyinit[:FOUR,:] = array( [[0.,0.],[1.,0.],[1.,1.],[0.,1.]] )
 
 
   for i in xrange(rootNodes):
     t = random()*2.*pi
-    xy = C  + array( [cos(t),sin(t)] )*RAD
+    xy = C + array( [cos(t),sin(t)] )*RAD
     XY[i,:] = xy
 
   ## QJ makes all added points appear in the triangulation
@@ -340,29 +363,15 @@ def main():
   try:
     while True:
 
+      oo = o
+
       VSdict,SVdict = makeNodemap(snum,tri,XY,sXY)
 
       ## grow new vein nodes
-      oo = o
-      for i,jj in VSdict.iteritems():
-        txy      = npsum( XY[i,:] -sXY[jj,:] ,axis=0)
-        a        = arctan2( txy[1],txy[0] )
-        xy       = array( [cos(a),sin(a)] )*veinNode
-        XY[o,:]  = XY[i,:] - xy 
-        P[o]     = i
-        o       += 1
+      o = grow_new_veins(VSdict, XY, sXY, P, o)
         
       ## mask out dead source nodes
-      mask = ones(snum,dtype=bool)
-      for j,ii in SVdict.iteritems():
-        mask[j]      = False
-        #mn           = ii.shape[0]
-        #txy          = XY[ii,:]-sXY[j,:]
-        #a            = arctan2( txy[:,1],txy[:,0] )
-        #xy           = colstack(( cos(a),sin(a) ))*veinNode
-        #XY[o:o+mn,:] = XY[ii,:] + xy 
-        #P[ o:o+mn  ] = ii
-        #o           += mn
+      mask = mask_out_dead(SVdict, snum)
 
       ## add new points to triangulation
       #triadd(XY[oo:o,:])
@@ -411,15 +420,5 @@ def main():
 
 
 if __name__ == '__main__' :
-
-  if False:
-    import pstats
-    import cProfile
-    OUT = 'profile'
-    pfilename = '{:s}.profile'.format(OUT)
-    cProfile.run('main()',pfilename)
-    p = pstats.Stats(pfilename)
-    p.strip_dirs().sort_stats('cumulative').print_stats()
-  else:
     main()
 
