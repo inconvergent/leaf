@@ -17,7 +17,7 @@ from collections import defaultdict
 np.random.seed(1)
 
 
-#@profile
+@profile
 def main():
   """
   time to load up the ponies
@@ -43,7 +43,6 @@ def main():
   rowstack  = np.row_stack
   hstack    = np.hstack
   vstack    = np.vstack
-  triag     = Delaunay
   unique    = np.unique
   positive  = lambda a: a[a>-1]
   vectorize = np.vectorize
@@ -138,7 +137,7 @@ def main():
   vcirc = vectorize(circ)
 
 
-  #@profile
+  @profile
   def dist2hd(x,y):
     d = zeros((x.shape[0],y.shape[0]),dtype=x.dtype)
     for i in xrange(x.shape[1]):
@@ -149,6 +148,7 @@ def main():
     return d
 
 
+  @profile
   def draw(P,W,o,XY):
     """
     draws the veins
@@ -220,7 +220,7 @@ def main():
     return res,lenres
 
   
-  #@profile  
+  @profile  
   def makeNodemap(snum,ltri,lXY,lsXY):
     """
     map and inverse map of relative neighboring vein nodes of all source nodes
@@ -287,7 +287,7 @@ def main():
     return VSdict2,SVdict
 
 
-  #@profile
+  @profile
   def grow_new_veins(vs,lXY,lsXY,lP,o):
     """
     each vein node travels in the average direction of all source nodes
@@ -303,7 +303,7 @@ def main():
       o += 1
     return o
 
-  #@profile
+  @profile
   def mask_out_dead(sv,n):
 
     mask = ones(n,dtype=bool)
@@ -312,15 +312,15 @@ def main():
     
     return mask
 
-  #@profile
+  @profile
   def retriangulate_add(tri,xy,o,oo):
 
     tri.add_points(xy[oo:o,:])
 
-  #@profile
+  @profile
   def retriangulate_new(xyinit,xy,o):
     
-    tri = triag( vstack(( xyinit,xy[:o,:]  )), \
+    tri = Delaunay( vstack(( xyinit,xy[:o,:]  )), \
                qhull_options='QJ Qc Pp')
 
     return tri
@@ -356,7 +356,7 @@ def main():
   ## QJ makes all added points appear in the triangulation
   ## if they are duplicates they are added by adding a random small number to
   ## the node.
-  tri = triag( vstack(( xyinit,XY[:o,:]  )), \
+  tri = Delaunay( vstack(( xyinit,XY[:o,:]  )), \
                incremental=True,
                qhull_options='QJ Qc')
 
@@ -382,8 +382,8 @@ def main():
 
 
       ## add new points to triangulation
-      #retriangulate_add(tri,XY,o,oo)
-      tri = retriangulate_new(xyinit,XY,o)
+      retriangulate_add(tri,XY,o,oo)
+      #tri = retriangulate_new(xyinit,XY,o)
 
       ## remove dead soure nodes
       sXY  = sXY[mask,:]
@@ -416,7 +416,6 @@ def main():
 
     draw(P,W,o,XY)
 
-
     ## save to file
     sur.write_to_png('{:s}.veins.png'.format(OUT))
 
@@ -424,5 +423,15 @@ def main():
 
 
 if __name__ == '__main__' :
+
+  if False:
+    import pstats
+    import cProfile
+    OUT = 'profile'
+    pfilename = '{:s}.profile'.format(OUT)
+    cProfile.run('main()',pfilename)
+    p = pstats.Stats(pfilename)
+    p.strip_dirs().sort_stats('cumulative').print_stats()
+  else:
     main()
 
