@@ -11,13 +11,14 @@ import cairo
 from time import time as time
 from time import strftime
 import sys
-from scipy.spatial import Delaunay,distance
+from scipy.spatial import Delaunay,distance, Voronoi
 from collections import defaultdict
+from scipy.spatial import cKDTree
 
 np.random.seed(1)
 
 
-@profile
+#@profile
 def main():
   """
   time to load up the ponies
@@ -61,7 +62,7 @@ def main():
   ## GLOBAL-ISH CONSTANTS (SYSTEM RELATED)
   
   ## pixel size of canvas
-  SIZE = 1000
+  SIZE = 5000
   ## background color (white)
   BACK = 1.
   ## foreground color (black)
@@ -84,7 +85,7 @@ def main():
   ## GLOBAL-ISH CONSTANTS (PHYSICAL PROPERTIES)
   
   ## minimum distance between source nodes
-  sourceDist = 7.*STP
+  sourceDist = 9.*STP
   ## a source node dies when all approaching vein nodes are closer than this
   ## only killzone == veinNode == STP will cause consistently visible merging
   ## of branches in rendering.
@@ -94,7 +95,7 @@ def main():
   ## maximum number of vein nodes
   vmax = 1*1e7
   # number of inital source nodes
-  sinit = 10000
+  sinit = 50000
   ## width of widest vein nodes when rendered
   rootW = 0.01*SIZE*STP
   ## width of smallest vein nodes when rendered
@@ -137,7 +138,7 @@ def main():
   vcirc = vectorize(circ)
 
 
-  @profile
+  #@profile
   def dist2hd(x,y):
     d = zeros((x.shape[0],y.shape[0]),dtype=x.dtype)
     for i in xrange(x.shape[1]):
@@ -148,24 +149,24 @@ def main():
     return d
 
 
-  @profile
+  #@profile
   def draw(P,W,o,XY):
     """
     draws the veins
     """
 
     ## simple vein width calculation
-    for i in reversed(xrange(rootNodes,o)):
-      ii = P[i]
-      while ii>1:
-        W[ii]+=1.
-        ii = P[ii]
+    #for i in reversed(xrange(rootNodes,o)):
+      #ii = P[i]
+      #while ii>1:
+        #W[ii]+=1.
+        #ii = P[ii]
 
-    wmax = W.max()
-    W = sqrt(W/wmax)*rootW
+    #wmax = W.max()
+    #W = sqrt(W/wmax)*rootW
 
-    W[W<leafW] = leafW
-    #W[:] = leafW
+    #W[W<leafW] = leafW
+    W[:] = leafW
 
     ## show vein nodes
     for i in reversed(range(rootNodes,o)):
@@ -205,23 +206,25 @@ def main():
     
     dartsxy = randomPointsInCircle(n)
 
-    jj = []
+    tree = cKDTree( dartsxy )
+    neigh = tree.query_ball_point(dartsxy, sourceDist)
 
-    ## remove new nodes that are too close to other 
-    ## new nodes
-    dists = cdist(dartsxy,dartsxy,'euclidean')
-    for j in xrange(n-1):
-      if all( dists[j,j+1:] > sourceDist ):
-        jj.append(j)
+    mask = ones(dartsxy.shape[0],dtype=bool)
+    for i,x in enumerate(neigh):
+      if len(x)>1:
+        xx = x[x>i+1]
+        mask[xx] = False
 
-    res = dartsxy[array(jj,dtype=bigint),:]
+    res_mask = mask.nonzero()[0]
+
+    res = dartsxy[res_mask]
     lenres = res.shape[0]
 
     return res,lenres
 
   
-  @profile  
-  def makeNodemap(snum,ltri,lXY,lsXY):
+  #@profile  
+  def makeNodemap(snum,ltri,lXY,lsXY,o):
     """
     map and inverse map of relative neighboring vein nodes of all source nodes
     
@@ -244,14 +247,19 @@ def main():
     
     # simplex -> vertices
     p  = ltri.simplices
-    # s -> simplex
+    ## s -> simplex
     js = ltri.find_simplex(lsXY,bruteforce=True,tol=1e-4) 
-    # s -> neighboring simplices including s
-    neigh = colstack(( ltri.neighbors[js],js ))
-    # s -> potential neighboring points
-    vv = ( unique( positive( p[ns,:]-FOUR ) ) \
-             for ns in neigh )
+    
+    #tree = cKDTree( lXY[:o,:] , leafsize=10)
+    #test_dist, region_match = tree.query(lsXY,1, p=2)
 
+
+    ## s -> neighboring simplices including s
+    neigh = colstack(( ltri.neighbors[js],js ))
+    ## s -> potential neighboring points
+    vv = [ unique( positive( p[ns,:]-FOUR ) ) \
+             for ns in neigh ]
+    
     for j,ii in enumerate(vv):
       iin = ii.shape[0]
 
@@ -275,19 +283,16 @@ def main():
         VSdict[i].append(j)
         distdict[i].append(d)
 
-    VSdict = { i:array(jj) for i,jj in VSdict.iteritems() }
-    distdict = { i:array(dd) for i,dd in distdict.iteritems() }
-
     VSdict2 = {}
-    for i,jj in VSdict.iteritems():
-      mask = distdict[i] > killzone
+    for ( (i,d),jj ) in zip( distdict.iteritems(),VSdict.values() ):
+      mask = array(d) > killzone
       if any(mask):
-        VSdict2[i] = jj[mask]
+        VSdict2[i] = array(jj)[mask]
 
     return VSdict2,SVdict
 
 
-  @profile
+  #@profile
   def grow_new_veins(vs,lXY,lsXY,lP,o):
     """
     each vein node travels in the average direction of all source nodes
@@ -303,7 +308,7 @@ def main():
       o += 1
     return o
 
-  @profile
+  #@profile
   def mask_out_dead(sv,n):
 
     mask = ones(n,dtype=bool)
@@ -312,12 +317,12 @@ def main():
     
     return mask
 
-  @profile
+  #@profile
   def retriangulate_add(tri,xy,o,oo):
 
     tri.add_points(xy[oo:o,:])
 
-  @profile
+  #@profile
   def retriangulate_new(xyinit,xy,o):
     
     tri = Delaunay( vstack(( xyinit,xy[:o,:]  )), \
@@ -356,9 +361,8 @@ def main():
   ## QJ makes all added points appear in the triangulation
   ## if they are duplicates they are added by adding a random small number to
   ## the node.
-  tri = Delaunay( vstack(( xyinit,XY[:o,:]  )), \
-               incremental=True,
-               qhull_options='QJ Qc')
+
+  tri = retriangulate_new(xyinit,XY,o)
 
   ### MAIN LOOP
 
@@ -372,7 +376,7 @@ def main():
 
       oo = o
 
-      VSdict,SVdict = makeNodemap(snum,tri,XY,sXY)
+      VSdict,SVdict = makeNodemap(snum,tri,XY,sXY,oo)
 
       ## grow new vein nodes
       o = grow_new_veins(VSdict, XY, sXY, P, o)
@@ -382,8 +386,8 @@ def main():
 
 
       ## add new points to triangulation
-      retriangulate_add(tri,XY,o,oo)
-      #tri = retriangulate_new(xyinit,XY,o)
+      #retriangulate_add(tri,XY,o,oo)
+      tri = retriangulate_new(xyinit,XY,o)
 
       ## remove dead soure nodes
       sXY  = sXY[mask,:]
